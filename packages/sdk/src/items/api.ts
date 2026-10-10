@@ -126,17 +126,33 @@ export class ItemsApiImpl implements ItemsApi {
     params: ListItemsParams = {},
     options: RequestOptions = {},
   ): AsyncIterableIterator<WalmartItem> {
-    let cursor = params.nextCursor;
+    // VERIFIED live 2026-10-10: an uncursored call returns NO `nextCursor` at all, and a cursor
+    // (first page requested with `nextCursor=*`) is the SAME value on every page and advances
+    // server-side on each use. So the walk is offset-based unless the caller hands us a cursor
+    // to continue from: `offset` is stateless and `totalItems` says where to stop.
     const seen = new Set<string>();
+    let cursor = params.nextCursor;
+    let offset = params.offset ?? 0;
     for (;;) {
-      const page: ItemsPage = await this.list({ ...params, nextCursor: cursor }, options);
-      yield* page.items;
-      const next = page.nextCursor;
-      // Stop on an absent cursor, an empty page, or a cursor Walmart has already handed us —
-      // a repeating cursor would otherwise spin forever.
-      if (next === undefined || page.items.length === 0 || seen.has(next)) return;
-      seen.add(next);
-      cursor = next;
+      const page: ItemsPage = await this.list(
+        cursor === undefined
+          ? { ...params, offset, nextCursor: undefined }
+          : { ...params, nextCursor: cursor },
+        options,
+      );
+      // An item already yielded means the server is not advancing; stop rather than spin.
+      const fresh = page.items.filter((item) => !seen.has(item.sku));
+      for (const item of fresh) seen.add(item.sku);
+      yield* fresh;
+      if (fresh.length === 0) return;
+      if (cursor === undefined) {
+        offset += page.items.length;
+        if (page.totalItems !== undefined && offset >= page.totalItems) return;
+      } else if (page.nextCursor === undefined) {
+        return;
+      } else {
+        cursor = page.nextCursor;
+      }
     }
   }
 

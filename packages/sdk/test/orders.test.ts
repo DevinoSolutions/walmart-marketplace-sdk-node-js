@@ -222,3 +222,157 @@ describe("order writes", () => {
     expect(calls).toHaveLength(0);
   });
 });
+
+// An order as captured live 2026-10-10 (values replaced with placeholders). Note the nulls:
+// Walmart sends explicit `null` for absent optional fields, and `customerEmailId` is omitted
+// entirely on some orders.
+const LIVE_ORDER = {
+  purchaseOrderId: "PO-1",
+  customerOrderId: "CO-1",
+  orderDate: 1_757_000_000_000,
+  shippingInfo: {
+    phone: "0000000000",
+    estimatedDeliveryDate: 1_757_500_000_000,
+    estimatedShipDate: 1_757_100_000_000,
+    methodCode: "Standard",
+    postalAddress: {
+      name: "<name>",
+      address1: "<address1>",
+      address2: null,
+      city: "<city>",
+      state: "<province>",
+      postalCode: "<postal>",
+      country: "CA",
+      addressType: "RESIDENTIAL",
+    },
+    carrierMethodName: null,
+  },
+  orderLines: {
+    orderLine: [
+      {
+        lineNumber: "1",
+        shipFromCountry: "CA",
+        item: { productName: "Sample Widget", sku: "SKU-1" },
+        charges: {
+          charge: [
+            {
+              chargeType: "PRODUCT",
+              chargeName: "ItemPrice",
+              chargeAmount: { currency: "CAD", amount: 19.99 },
+              tax: { taxName: "GST", taxAmount: { currency: "CAD", amount: 1 } },
+              isDiscount: false,
+            },
+          ],
+        },
+        orderLineQuantity: { unitOfMeasurement: "EACH", amount: "2" },
+        statusDate: 1_757_300_000_000,
+        orderLineStatuses: {
+          orderLineStatus: [
+            {
+              status: "Delivered",
+              subSellerId: null,
+              statusQuantity: { unitOfMeasurement: "EACH", amount: "2" },
+              cancellationReason: null,
+              trackingInfo: {
+                shipDateTime: 1_757_200_000_000,
+                carrierName: { otherCarrier: null, carrier: "CPC" },
+                methodCode: "Standard",
+                trackingNumber: "TRACK-1",
+                trackingURL: "https://example.invalid/track/TRACK-1",
+                packageStatus: "DELIVERED",
+              },
+              returnCenterAddress: null,
+              sellerOrderId: null,
+            },
+          ],
+        },
+        refund: null,
+        fulfillment: { fulfillmentOption: "S2H", shipMethod: "STANDARD", storeId: null },
+      },
+    ],
+  },
+};
+
+describe("orders live shapes (2026-10-10)", () => {
+  it("parses a Delivered order with explicit nulls and no customerEmailId", async () => {
+    const { client } = createHarness([
+      jsonRoute("GET", "/v3/orders", {
+        list: { meta: { totalCount: 1, limit: 1 }, elements: { order: [LIVE_ORDER] } },
+      }),
+    ]);
+    const page = await client.orders.list({ limit: 1 });
+    const order = page.orders[0];
+
+    expect(order).toMatchObject({
+      purchaseOrderId: "PO-1",
+      customerOrderId: "CO-1",
+      shippingMethod: "Standard",
+    });
+    expect(order?.customerEmailId).toBeUndefined();
+    expect(order?.orderLines[0]).toMatchObject({
+      lineNumber: "1",
+      sku: "SKU-1",
+      quantityAmount: 2,
+      status: "Delivered",
+    });
+    expect(page.nextCursor).toBeUndefined();
+  });
+
+  it("works without createdStartDate (Walmart applies its own default window)", async () => {
+    const { client, calls } = createHarness([
+      jsonRoute("GET", "/v3/orders", {
+        list: { meta: { totalCount: 1, limit: 1 }, elements: { order: [LIVE_ORDER] } },
+      }),
+    ]);
+    await client.orders.list({ limit: 1 });
+    expect(apiCalls(calls)[0]?.url.searchParams.has("createdStartDate")).toBe(false);
+  });
+
+  it("follows the query-string nextCursor verbatim and stops when it disappears", async () => {
+    const cursor = "?limit=1&hasMoreElements=true&soIndex=1&poIndex=1&orgId=ORG&partnerId=P";
+    const route: MockRoute = {
+      method: "GET",
+      pathPattern: "/v3/orders",
+      reply: (req) =>
+        req.url.searchParams.get("hasMoreElements") === "true"
+          ? {
+              status: 200,
+              body: {
+                list: {
+                  meta: { totalCount: 2, limit: 1 },
+                  elements: { order: [{ ...LIVE_ORDER, purchaseOrderId: "PO-2" }] },
+                },
+              },
+            }
+          : {
+              status: 200,
+              body: {
+                list: {
+                  meta: { totalCount: 2, limit: 1, nextCursor: cursor },
+                  elements: { order: [LIVE_ORDER] },
+                },
+              },
+            },
+    };
+    const { client, calls } = createHarness([route]);
+    const ids: string[] = [];
+    for await (const order of client.orders.listAll({ limit: 1 })) ids.push(order.purchaseOrderId);
+
+    expect(ids).toEqual(["PO-1", "PO-2"]);
+    const second = apiCalls(calls)[1]?.url;
+    expect(second?.searchParams.get("soIndex")).toBe("1");
+    expect(second?.searchParams.get("partnerId")).toBe("P");
+  });
+
+  it.each(["CREATED", "ACKNOWLEDGED", "SHIPPED", "DELIVERED", "CANCELLED", "REFUND"] as const)(
+    "sends the upper-case %s status filter as given",
+    async (status) => {
+      const { client, calls } = createHarness([
+        jsonRoute("GET", "/v3/orders", { list: { meta: { totalCount: 0 }, elements: {} } }),
+      ]);
+      const page = await client.orders.list({ status });
+      expect(apiCalls(calls)[0]?.url.searchParams.get("status")).toBe(status);
+      expect(page.orders).toEqual([]);
+    },
+  );
+});

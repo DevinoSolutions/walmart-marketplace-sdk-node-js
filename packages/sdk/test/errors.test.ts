@@ -196,3 +196,76 @@ describe("credential leakage", () => {
     expect(JSON.stringify(error.toJSON())).not.toContain(basic);
   });
 });
+
+describe("live-verified error envelopes (2026-10-10)", () => {
+  it("reads the { errors: [...] } bare-array form the inventory API uses", async () => {
+    const { client } = createHarness([
+      errorRoute("GET", "/v3/inventory", 404, {
+        errors: [
+          {
+            code: "CONTENT_NOT_FOUND.GMP_INVENTORY_API",
+            field: null,
+            description: "No offer ID found against partnerID - null and skuID - SKU-404.",
+            info: "Requested content could not be found.",
+            severity: "INFO",
+            category: "APPLICATION",
+            causes: [],
+            errorIdentifiers: {},
+          },
+        ],
+      }),
+    ]);
+    const error = await client.inventory.get("SKU-404").catch((e: unknown) => e);
+
+    expect(error).toBeInstanceOf(WalmartApiError);
+    expect(error).toMatchObject({
+      status: 404,
+      upstreamCode: "CONTENT_NOT_FOUND.GMP_INVENTORY_API",
+      retryable: false,
+    });
+    expect((error as WalmartApiError).errors[0]).toMatchObject({ severity: "INFO" });
+  });
+
+  it("maps the gateway 401 UNAUTHORIZED to WalmartAuthError", async () => {
+    const { client } = createHarness([
+      errorRoute("GET", "/v3/items", 401, {
+        error: [
+          {
+            code: "UNAUTHORIZED.GMP_GATEWAY_API",
+            field: "UNAUTHORIZED",
+            description: "Unauthorized",
+            severity: "ERROR",
+            category: "DATA",
+            causes: [],
+            errorIdentifiers: {},
+          },
+        ],
+      }),
+    ]);
+    const error = await client.items.list().catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(WalmartAuthError);
+    expect(error).toMatchObject({ upstreamCode: "UNAUTHORIZED.GMP_GATEWAY_API", status: 401 });
+  });
+
+  it("surfaces the nested orders 404 with its code", async () => {
+    const { client } = createHarness([
+      errorRoute("GET", /\/v3\/orders\//, 404, {
+        errors: {
+          error: [
+            {
+              code: "404.ORDER_SERVICE.ORDER_NOT_FOUND",
+              description: "Order Not found",
+              severity: "ERROR",
+              category: "REQUEST",
+              errorIdentifiers: { entry: [] },
+            },
+          ],
+        },
+      }),
+    ]);
+    await expect(client.orders.get("PO-404")).rejects.toMatchObject({
+      status: 404,
+      upstreamCode: "404.ORDER_SERVICE.ORDER_NOT_FOUND",
+    });
+  });
+});

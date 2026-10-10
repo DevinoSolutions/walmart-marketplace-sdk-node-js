@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { FEED_PART_NAME, WalmartApiError, WalmartValidationError } from "../src/index.js";
-import { apiCalls, createHarness, jsonRoute } from "./helpers.js";
+import { apiCalls, createHarness, errorRoute, jsonRoute } from "./helpers.js";
 
 const submitRoute = jsonRoute("POST", "/v3/feeds", { feedId: "FEED-123" });
 
@@ -138,5 +138,99 @@ describe("feeds.getStatus", () => {
     const { client, calls } = createHarness([]);
     await expect(client.feeds.getStatus("")).rejects.toBeInstanceOf(WalmartValidationError);
     expect(calls).toHaveLength(0);
+  });
+});
+
+describe("feeds.getStatus live shape (2026-10-10)", () => {
+  // GET /v3/feeds/{feedId} as captured live: no feedType, an epoch-ms feedSubmissionDate, and
+  // paging echoed back. includeDetails=false still sends an (empty) itemIngestionStatus array.
+  const LIVE_STATUS = {
+    feedId: "FEED-123",
+    feedStatus: "PROCESSED",
+    feedSubmissionDate: 1_757_000_000_000,
+    itemsReceived: 2,
+    itemsSucceeded: 1,
+    itemsFailed: 1,
+    itemsProcessing: 0,
+    offset: 0,
+    limit: 50,
+    itemDetails: {
+      itemIngestionStatus: [
+        {
+          martId: 0,
+          sku: "SKU-1",
+          wpid: "W1",
+          index: 0,
+          itemid: "",
+          productIdentifiers: {},
+          ingestionStatus: "SUCCESS",
+        },
+        {
+          martId: 0,
+          sku: "SKU-2",
+          index: 1,
+          itemid: "",
+          productIdentifiers: {},
+          ingestionStatus: "DATA_ERROR",
+          ingestionErrors: {
+            ingestionError: [
+              {
+                type: "DATA_ERROR",
+                code: "EXT_DATA_ERROR_1",
+                field: "gtin",
+                description: "Placeholder description.",
+              },
+            ],
+          },
+        },
+      ],
+    },
+  };
+
+  it("reads submittedAt and the field name on each ingestion error", async () => {
+    const { client } = createHarness([jsonRoute("GET", "/v3/feeds/FEED-123", LIVE_STATUS)]);
+    const status = await client.feeds.getStatus("FEED-123");
+
+    expect(status.submittedAt).toBe(new Date(1_757_000_000_000).toISOString());
+    expect(status.feedType).toBeUndefined();
+    expect(status.itemDetails[1]?.ingestionErrors[0]).toEqual({
+      type: "DATA_ERROR",
+      code: "EXT_DATA_ERROR_1",
+      field: "gtin",
+      description: "Placeholder description.",
+    });
+  });
+
+  it("returns an empty itemDetails list for includeDetails=false", async () => {
+    const { client } = createHarness([
+      jsonRoute("GET", "/v3/feeds/FEED-123", {
+        ...LIVE_STATUS,
+        itemDetails: { itemIngestionStatus: [] },
+      }),
+    ]);
+    const status = await client.feeds.getStatus("FEED-123", { includeDetails: false });
+    expect(status.itemDetails).toEqual([]);
+    expect(status.itemsFailed).toBe(1);
+  });
+
+  it("raises WalmartApiError for an unknown feed id (404 CONTENT_NOT_FOUND)", async () => {
+    const { client } = createHarness([
+      errorRoute("GET", /\/v3\/feeds\//, 404, {
+        error: [
+          {
+            code: "CONTENT_NOT_FOUND.GMP_DATA_STATUS_API",
+            info: "Placeholder detail.",
+            severity: "INFO",
+            category: "APPLICATION",
+            causes: [],
+            errorIdentifiers: { entry: [] },
+          },
+        ],
+      }),
+    ]);
+    await expect(client.feeds.getStatus("NOPE")).rejects.toMatchObject({
+      status: 404,
+      upstreamCode: "CONTENT_NOT_FOUND.GMP_DATA_STATUS_API",
+    });
   });
 });

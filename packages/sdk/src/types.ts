@@ -73,6 +73,7 @@ export interface WalmartItem {
   gtin?: string;
   upc?: string;
   productName?: string;
+  /** The category path as Walmart sends it: a JSON-encoded array STRING, not an array. */
   shelf?: string;
   productType?: string;
   price?: MoneyAmount;
@@ -84,14 +85,19 @@ export interface WalmartItem {
 
 /** Query parameters for `items.list`. */
 export interface ListItemsParams {
-  /** Opaque cursor from a previous page. Pass {@link ItemsPage.nextCursor} straight back. */
+  /**
+   * Opaque cursor. Pass `*` for the first page, then {@link ItemsPage.nextCursor} straight
+   * back. Walmart returns the SAME cursor on every page and advances it server-side per use,
+   * and returns no cursor at all on an uncursored call; prefer `offset` + `limit` for paging.
+   */
   nextCursor?: string;
   sku?: string;
   gtin?: string;
   offset?: number;
-  /** Walmart caps this at 200 per page. */
+  /** Page size (Walmart defaults to 20). The SDK caps it at 200, as orders enforce upstream. */
   limit?: number;
   lifecycleStatus?: LifecycleStatus;
+  /** Observed: `PUBLISHED`, `UNPUBLISHED`, `SYSTEM_PROBLEM`. Free-form: Walmart adds values. */
   publishedStatus?: string;
 }
 
@@ -106,7 +112,10 @@ export interface ItemsPage {
 
 export interface ItemsApi {
   list(params?: ListItemsParams, options?: RequestOptions): Promise<ItemsPage>;
-  /** Walks every page via `nextCursor`, yielding items one at a time. */
+  /**
+   * Walks every page, yielding items one at a time. Pages by `offset` (stateless; stops at
+   * `totalItems`) unless `params.nextCursor` is given, in which case it follows the cursor.
+   */
   listAll(params?: ListItemsParams, options?: RequestOptions): AsyncIterableIterator<WalmartItem>;
   get(sku: string, options?: RequestOptions): Promise<WalmartItem>;
 }
@@ -167,7 +176,10 @@ export interface FeedStatus {
   feedId: string;
   /** `RECEIVED` | `INPROGRESS` | `PROCESSED` | `ERROR`. */
   feedStatus?: string;
+  /** Not sent by `GET /v3/feeds/{feedId}` (only by the feed list); usually `undefined`. */
   feedType?: string;
+  /** ISO-8601 UTC, from `feedSubmissionDate` (epoch milliseconds on the wire). */
+  submittedAt?: string;
   itemsReceived?: number;
   itemsSucceeded?: number;
   itemsFailed?: number;
@@ -284,7 +296,10 @@ export interface WalmartOrder {
 }
 
 export interface ListOrdersParams {
-  /** ISO-8601 UTC, e.g. `2026-08-12T00:00:00Z`. Walmart requires it on an uncursored call. */
+  /**
+   * ISO-8601 UTC, e.g. `2026-08-12T00:00:00Z`. Optional: without it Walmart applies its own
+   * default window, which returns fewer orders than an explicit wide range.
+   */
   createdStartDate?: string;
   createdEndDate?: string;
   status?: OrderStatus;
