@@ -72,6 +72,15 @@ sent by the status call and is normally `undefined`.
 
 Write methods are marked above and in the operation table. `feeds.submit` takes a `Blob`,
 `Uint8Array` or JSON-serializable object and uploads it as the multipart part named `file`.
+The one exception is `feedType: "lagtime"`, whose payload must be a plain object
+(`{ LagTimeHeader: { version: "1.0" }, lagTime: [{ sku, fulfillmentLagTime }] }`) and is sent as
+the JSON request body.
+
+`inventory.update` resolves with the echoed requested amount, but the stored quantity changes
+asynchronously (minutes), and the call answers `404` until a newly fed SKU exists in the
+catalogue. `price.update` can resolve with an empty `feedId` and a non-empty
+`PriceUpdateResult.ingestionErrors` (HTTP 200 with a `PDR-0016` block); check it before
+assuming the price changed. See contracts §6 to §8.
 
 ## Errors
 

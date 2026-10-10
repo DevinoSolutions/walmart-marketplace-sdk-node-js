@@ -9,9 +9,16 @@ and those differences are called out.
 **Live verification.** Every read the SDK wraps (token, items list/get, inventory get, orders
 list/get, feed status) was exercised against the production Walmart Canada account on
 **2026-10-10** (GET requests plus the token call only) and is marked **VERIFIED 2026-10-10
-(live)** below. The writes (`feeds.submit`, `inventory.update`, `price.update`,
-`orders.acknowledge` / `ship` / `cancel`) were deliberately **not** called, so their request
-shapes remain documentation-derived or **ASSUMPTION**.
+(live)** below.
+
+**Write verification (2026-10-10, from past ops writes).** No write was made to verify the
+contract. Instead, the request and response of writes the operator had already made (with
+authorization) through this SDK and small helper scripts between 2026-09-16 and 2026-10-10 were
+compared with the SDK, and rows are marked **VERIFIED 2026-10-10 (from live ops writes, <date
+of the write>)**. Verified that way: `feeds.submit` for `MP_ITEM_MATCH` v1.06 and
+`MP_ITEM_INTL` v3.16, the `lagtime` feed, and `inventory.update`. `price.update` was exercised
+but only ever answered with a failure (`PDR-0016`, §8). `orders.acknowledge` / `ship` / `cancel`
+were never called and stay **ASSUMPTION**.
 
 **How to read this document.** Anything not explicitly marked **ASSUMPTION** was taken from
 that reference. **ASSUMPTION** means the SDK sends a shape that the reference did not fully
@@ -261,6 +268,78 @@ error that does not say why.
 
 Response: `{ "feedId": "…" }`. Nothing else — processing is asynchronous.
 
+**VERIFIED 2026-10-10 (from live ops writes, 2026-09-16 to 2026-10-08) — `POST
+/v3/feeds`.** `feeds.submit` with the multipart `file` part was accepted (`200`, body exactly
+`{ "feedId": "…" }`, feed id shaped `<hex>@<suffix>`) for `MP_ITEM_MATCH` (many feeds,
+one to five items each) and `MP_ITEM_INTL` (single-item feeds). Observed bodies:
+
+`MP_ITEM_MATCH` — the Canadian spec is `CA_MP_ITEM_MATCH` **v1.06**. Every other `version`
+value is rejected, and the error echoes the version after a `|`; an empty echo means a header
+_shape_ error, a non-empty echo a bad version _value_.
+
+```json
+{
+  "MPItemFeedHeader": {
+    "sellingChannel": "mpsetupbymatch",
+    "mart": "WALMART_CA",
+    "version": "1.06",
+    "processMode": "REPLACE",
+    "subset": "EXTERNAL",
+    "locale": ["en", "fr"]
+  },
+  "MPItem": [
+    {
+      "Item": {
+        "sku": "SKU-1",
+        "productIdentifiers": { "productIdType": "GTIN", "productId": "00000000000000" },
+        "price": 99.99,
+        "ShippingWeight": { "measure": 0.5, "unit": "lb" },
+        "productTaxCode": 2038710,
+        "productCategory": "Computer Components"
+      }
+    }
+  ]
+}
+```
+
+- `locale` must be an **array** (`["en", "fr"]`). A bare string parses but reports an empty
+  version.
+- `productTaxCode` is **required** and an integer. `price` is a bare number (no currency).
+  `ShippingWeight` is an object (`{ measure, unit }`, `unit: "lb"`); do not copy the US
+  v4.2 shape, where it is a bare number. `productId` is the GTIN zero-padded to 14 digits.
+- A match feed carries **no quantity** and no `condition`, images, title or description: the
+  matched listing inherits Walmart's catalogue content, and the item publishes at
+  **quantity 0**. Listing is therefore two steps: the match feed, then `inventory.update` (§7).
+- Resending the same feed with a new `price` re-prices the item and leaves quantity alone. This
+  is the working fallback while `POST /v3/price` fails (§8).
+- The item may show `UNPUBLISHED` or `SYSTEM_PROBLEM` for a while after a successful feed; the
+  feed status says `SUCCESS` regardless.
+
+`MP_ITEM_INTL` — creates a new catalogue record. Header `sellingChannel: "marketplace"`,
+`version: "3.16"`, `subCategory`, `mart: "WALMART_CA"`, `processMode: "REPLACE"`, `subset:
+"EXTERNAL"`, `locale: ["en", "fr"]`, plus `requestId` / `requestBatchId` / `feedDate`. Each
+`MPItem[]` entry is `{ "Orderable": {…}, "Visible": { "<product type>": {…} } }` (no inner
+`Item` wrapper); `Orderable` carries `sku`, `productIdentifiers`, per-locale `productName`,
+`brand`, `price`, `productTaxCode`, `ShippingWeight`, `shortDescription`, `mainImageUrl`,
+`countryOfOriginAssembly` and more. The body is large and category-specific, so the SDK passes
+it through untouched; take the field list from the `CA_MP_ITEM_INTL_SPEC` file.
+
+**Lag time — `POST /v3/feeds?feedType=lagtime` — VERIFIED 2026-10-10 (from live ops writes,
+2026-10-05 to 2026-10-09).** Sets the handling days per SKU. The accepted request is a bare
+JSON body with `Content-Type: application/json` (**not** multipart), and `feeds.submit` sends
+`feedType: "lagtime"` that way:
+
+```json
+{ "LagTimeHeader": { "version": "1.0" }, "lagTime": [{ "sku": "SKU-1", "fulfillmentLagTime": 0 }] }
+```
+
+Response `200`, `{ "feedId": "…" }`; `GET /v3/feeds/{feedId}` reports it like any feed. It takes
+effect asynchronously: `GET /v3/lagtime?sku=SKU-1` answers `{ "sku": "SKU-1",
+"fulfillmentLagTime": 0 }` once applied and `404 { "errors": [ { "code":
+"404.CONTENT_NOT_FOUND", "field": "lagtime", … } ] }` before (seen on a SKU still 404 90
+seconds after the feed). That read is not wrapped by the SDK. Whether the multipart form is also
+accepted for `lagtime` is **ASSUMPTION** (never tried).
+
 ### Feed status — `GET /v3/feeds/{feedId}`
 
 Query: `includeDetails` (the SDK defaults it to `true`), `limit`, `offset`.
@@ -336,6 +415,14 @@ example above:
   `ingestionError` array form, exactly as the SDK parses it. The bare-array form was not
   observed (**ASSUMPTION:** it may still occur; the SDK tolerates it, as it does for
   `orderLines` / `orderLineStatuses`, whose wrapped form _is_ verified in §9).
+- **`MP_ITEM_INTL` status lists each SKU twice.** One row is the in-flight record
+  (`index: 0`, `ingestionStatus: "INPROGRESS"`, empty `itemid` and `productIdentifiers`), the
+  other the resolved one (`index: 1`, `SUCCESS`, a non-empty `itemid` and
+  `productIdentifiers.productIdentifier[]` listing GTIN and UPC). So a one-item feed reports
+  `itemsReceived: 2`, and the feed sits at `feedStatus: "PROCESSED"` with `itemsProcessing: 1`
+  (or even `INPROGRESS`) for 20 minutes or more. Poll until `itemsProcessing` is 0, or stop
+  waiting on the feed and poll `items.get` for the SKU instead. `MP_ITEM_MATCH` feeds
+  resolve to a single row per SKU within about a minute.
 - Unknown feed id → `404`, `{ "error": [ { "code": "CONTENT_NOT_FOUND.GMP_DATA_STATUS_API",
 "severity": "INFO", … } ] }` → `WalmartApiError`.
 
@@ -357,10 +444,29 @@ Write: `PUT /v3/inventory?sku=<sku>` with
 
 Both return that same shape. `amount: 0` is the documented way to take a listing out of stock.
 
+**`PUT /v3/inventory` — VERIFIED 2026-10-10 (from live ops writes, 2026-09-20 to
+2026-10-09).** `inventory.update` was used many times to set quantities (including `0` and
+`1`..`9`). The body above, `sku` repeated in the query string and `unit: "EACH"`, is accepted
+(2xx); the response echoes `{ "sku": "SKU-1", "quantity": { "unit": "EACH", "amount": N } }`,
+with `amount` the value just sent. Gotchas:
+
+- **It is asynchronous.** The response echoes the _requested_ amount, but `GET /v3/inventory`
+  keeps returning the old amount for a while (seen: still old right after the call, new
+  after about a minute for most SKUs, still old at 90 seconds for another; operationally allow
+  up to about 30 minutes). Read back with a delay before concluding a write was lost, and do
+  not resend in a tight loop.
+- **A SKU that is not in the catalogue yet answers `404`,
+  `CONTENT_NOT_FOUND.GMP_INVENTORY_API`**, even right after its `MP_ITEM_MATCH` /
+  `MP_ITEM_INTL` feed reported `SUCCESS`. Retry every few minutes for up to about 30 minutes.
+- A newly matched item sits at quantity 0, so this call (not the feed) is what makes it sellable.
+- An `UNPUBLISHED` item accepts the call (quantity 1 read back while it was still
+  unpublished). Whether an item in `SYSTEM_PROBLEM` does is unknown: the retry helper waited
+  for it to leave that state first.
+
 **`GET /v3/inventory` on Canada — VERIFIED 2026-10-10 (live).** Works under
 `WM_GLOBAL_VERSION: 3.1` and answers exactly `{ "sku": "SKU-1", "quantity": { "unit": "EACH",
-"amount": 0 } }` (`amount` a JSON integer; no other keys). The `PUT` is a write and was **not**
-called, so its request/response shape stays as documented above and is unverified live.
+"amount": 0 } }` (`amount` a JSON integer; no other keys). The `PUT` was not called for this read check;
+its shape is verified separately from earlier ops writes, above.
 
 Errors (both use the `errors` **array** envelope, see §10):
 
@@ -382,6 +488,30 @@ CA/MX/CL use a feed-shaped payload rather than the US single-item body:
 
 The response is feed-shaped: `feedId`, `itemsReceived`/`Succeeded`/`Failed`, and
 `itemDetails.itemIngestionStatus[]` as in §6.
+
+**Live outcome, 2026-09-26 to 2026-10-07 — not working on this account.** `price.update`
+(the body above) and the single-item `{ "sku", "pricing": [{ "currentPrice": { "currency":
+"CAD", "amount": 24.99 }, "currentPriceType": "BASE" }] }` body both answered **HTTP `200`
+with no `feedId`**, only
+
+```json
+{
+  "ingestionErrors": {
+    "ingestionError": [
+      { "type": "SYSTEM_ERROR", "code": "PDR-0016", "description": "INTERNAL SERVER ERROR" }
+    ]
+  }
+}
+```
+
+The raw response above was captured on 2026-10-07 for the `pricing` body; the feed-shaped
+body (this SDK's `price.update`) hit the same `PDR-0016` block on 2026-09-26 and 2026-10-05
+(all six SKUs of one batch), and retry loops over several minutes did not clear it. No price
+change was applied through this endpoint. A successful `/v3/price` response was therefore **never observed**, so
+the request body and the success response shape stay **ASSUMPTION**. The SDK parses the
+top-level block into `PriceUpdateResult.ingestionErrors` (empty when accepted) because the
+failure is an HTTP-level success. The working ways to re-price on Canada are resending the
+`MP_ITEM_MATCH` feed with the new `price` (§6) or editing the price cell in Seller Center.
 
 **ASSUMPTION — header values.** `mart` (`WALMART_CA` / `WALMART_US` / `WALMART_MX` /
 `WALMART_CL`), `locale` (`en`) and `version` (`1.0`) are the SDK's defaults, inferred from the

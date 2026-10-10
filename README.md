@@ -86,6 +86,12 @@ const { feedId } = await client.feeds.submit({
 const status = await client.feeds.getStatus(feedId);
 ```
 
+Two things to know from live use: `inventory.update` echoes the requested amount at once but
+the stored quantity catches up over minutes (and answers 404 until a newly fed SKU exists), and
+`price.update` can resolve with a `PDR-0016` entry in `result.ingestionErrors` instead of a
+`feedId`. Lag time is `feeds.submit({ feedType: "lagtime", file: { LagTimeHeader: { version:
+"1.0" }, lagTime: [{ sku, fulfillmentLagTime: 0 }] } })`, sent as a JSON body.
+
 Feed processing is asynchronous, and `feedStatus: "PROCESSED"` means _finished_, not
 _successful_ — a feed with `itemsFailed > 0` still reports `PROCESSED`. Always read
 `status.itemDetails[].ingestionStatus`.
