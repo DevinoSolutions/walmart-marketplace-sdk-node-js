@@ -112,21 +112,29 @@ Classification is by **effect**, not by HTTP verb. This table is mirrored machin
 `packages/sdk/src/operations.ts`, which `scripts/check-live-readonly.ts` imports to derive the
 forbidden tokens for the live suite. Change one and the other follows.
 
-| Operation id         | Method | Path                                       | Access    |
-| -------------------- | ------ | ------------------------------------------ | --------- |
-| `auth.token`         | POST   | `/v3/token`                                | **read**  |
-| `items.list`         | GET    | `/v3/items`                                | read      |
-| `items.get`          | GET    | `/v3/items/{sku}`                          | read      |
-| `feeds.submit`       | POST   | `/v3/feeds`                                | **write** |
-| `feeds.getStatus`    | GET    | `/v3/feeds/{feedId}`                       | read      |
-| `inventory.get`      | GET    | `/v3/inventory`                            | read      |
-| `inventory.update`   | PUT    | `/v3/inventory`                            | **write** |
-| `price.update`       | POST   | `/v3/price`                                | **write** |
-| `orders.list`        | GET    | `/v3/orders`                               | read      |
-| `orders.get`         | GET    | `/v3/orders/{purchaseOrderId}`             | read      |
-| `orders.acknowledge` | POST   | `/v3/orders/{purchaseOrderId}/acknowledge` | **write** |
-| `orders.ship`        | POST   | `/v3/orders/{purchaseOrderId}/shipping`    | **write** |
-| `orders.cancel`      | POST   | `/v3/orders/{purchaseOrderId}/cancel`      | **write** |
+| Operation id             | Method | Path                                           | Access    |
+| ------------------------ | ------ | ---------------------------------------------- | --------- |
+| `auth.token`             | POST   | `/v3/token`                                    | **read**  |
+| `items.list`             | GET    | `/v3/items`                                    | read      |
+| `items.get`              | GET    | `/v3/items/{sku}`                              | read      |
+| `feeds.submit`           | POST   | `/v3/feeds`                                    | **write** |
+| `feeds.getStatus`        | GET    | `/v3/feeds/{feedId}`                           | read      |
+| `feeds.list`             | GET    | `/v3/feeds`                                    | read      |
+| `lagTime.get`            | GET    | `/v3/lagtime`                                  | read      |
+| `catalog.search`         | GET    | `/v3/items/walmart/search`                     | read      |
+| `shipping.listTemplates` | GET    | `/v3/settings/shipping/templates`              | read      |
+| `shipping.getTemplate`   | GET    | `/v3/settings/shipping/templates/{templateId}` | read      |
+| `reports.list`           | GET    | `/v3/reports/reportRequests`                   | read      |
+| `reports.get`            | GET    | `/v3/reports/reportRequests/{requestId}`       | read      |
+| `reports.getDownload`    | GET    | `/v3/reports/downloadReport`                   | read      |
+| `inventory.get`          | GET    | `/v3/inventory`                                | read      |
+| `inventory.update`       | PUT    | `/v3/inventory`                                | **write** |
+| `price.update`           | POST   | `/v3/price`                                    | **write** |
+| `orders.list`            | GET    | `/v3/orders`                                   | read      |
+| `orders.get`             | GET    | `/v3/orders/{purchaseOrderId}`                 | read      |
+| `orders.acknowledge`     | POST   | `/v3/orders/{purchaseOrderId}/acknowledge`     | **write** |
+| `orders.ship`            | POST   | `/v3/orders/{purchaseOrderId}/shipping`        | **write** |
+| `orders.cancel`          | POST   | `/v3/orders/{purchaseOrderId}/cancel`          | **write** |
 
 Note the trap: `/v3/inventory` is a read on GET and a write on PUT. Never classify an
 operation here by looking at the URL alone.
@@ -426,8 +434,8 @@ example above:
 - Unknown feed id → `404`, `{ "error": [ { "code": "CONTENT_NOT_FOUND.GMP_DATA_STATUS_API",
 "severity": "INFO", … } ] }` → `WalmartApiError`.
 
-**Observed, not wrapped by the SDK — `GET /v3/feeds` (feed list).** `?limit=` / `?offset=`
-accepted; returns `{ "totalResults", "offset", "limit", "results": { "feed": [ { "feedId",
+**`GET /v3/feeds` (feed list) - `client.feeds.list`, VERIFIED 2026-10-10 (live)** (see §12).
+`?limit=` / `?offset=` / `?feedType=` accepted; returns `{ "totalResults", "offset", "limit", "results": { "feed": [ { "feedId",
 "feedType", "feedStatus", "feedDate", "modifiedDtm", "itemsReceived", "itemsSucceeded",
 "itemsFailed", "itemsProcessing", "fileName", … } ] } }`. Feed types seen: `MP_ITEM_MATCH`,
 `MP_ITEM_INTL`, `lagtime`, `PRICE_AND_PROMOTION` (so lag and price feeds appear here, in the
@@ -710,12 +718,109 @@ an echoed credential becomes `[redacted]` rather than an entry in someone's log 
 
 ## 11. Not implemented
 
-| Surface                                        | Why                                                              |
-| ---------------------------------------------- | ---------------------------------------------------------------- |
-| `POST /v3/items/spec`                          | US-only                                                          |
-| `MP_ITEM` feed on ca/mx/cl                     | US-only; rejected locally                                        |
-| `GET /v3/feeds` (feed list)                    | shape recorded in §6; no SDK method yet                          |
-| `GET /v3/lagtime`                              | not wrapped; the lag feed shows up in the feed list instead      |
-| Returns / refunds                              | not yet mapped; `orders.refund` is pre-blocked in the live guard |
-| Item retirement                                | not yet mapped; `items.retire` is pre-blocked in the live guard  |
-| Reports, promotions, fulfilment centres, rules | out of scope for 0.1.0                                           |
+| Surface                                             | Why                                                                      |
+| --------------------------------------------------- | ------------------------------------------------------------------------ |
+| `POST /v3/items/spec`                               | US-only                                                                  |
+| `MP_ITEM` feed on ca/mx/cl                          | US-only; rejected locally                                                |
+| Report creation (`POST /v3/reports/reportRequests`) | a POST that starts a server-side job; the SDK wraps only the reads (§12) |
+| Item taxonomy / spec (`GET /v3/items/taxonomy`)     | ~1.6 MB research payload, no ops use beyond probes                       |
+| Returns / refunds                                   | not yet mapped; `orders.refund` is pre-blocked in the live guard         |
+| Item retirement                                     | not yet mapped; `items.retire` is pre-blocked in the live guard          |
+| Promotions, fulfilment centres, rules               | out of scope for 0.1.0                                                   |
+
+Since 2026-10-10 the feed list, the lag-time read, catalog search, shipping templates and the
+report-request reads are wrapped; see §12.
+
+## 12. Read endpoints added for the ops scripts — VERIFIED 2026-10-10 (live)
+
+These were being called with raw `fetch` by the owner's ops scripts. Each was re-called
+read-only on 2026-10-10 (about 40 calls in all, four of them token mints, spaced >= 0.6 s, no 429) and the shapes below are the observed ones (every value is a placeholder). All use the
+standard headers of §3.
+
+### Feed list - `GET /v3/feeds` (`client.feeds.list`)
+
+Shape in §6. Re-called with `limit`, `offset` and `feedType=lagtime`: `200` with `totalResults`,
+`offset`, `limit` and `results.feed[]`. Each row also carries `batchId` (the string `"null"`),
+`itemDataErrorCount`, `itemSystemErrorCount`, `itemTimeoutErrorCount`, `itemsInReviewCount`,
+`channelType`, `orgId`, `partnerId` and `markets: []` - account identifiers, kept in `raw`
+only. `feedDate` and `modifiedDtm` are epoch milliseconds **as strings**. A `feedType` filter
+that matches nothing answers `200` with `results: {}` (an empty history is not a `404`). The
+`limit` maximum is **ASSUMPTION** (the SDK allows 1..1000, as for feed status).
+
+### Lag time - `GET /v3/lagtime?sku=<sku>` (`client.lagTime.get`)
+
+- `200 { "sku": "SKU-1", "fulfillmentLagTime": 0 }` - days between order and shipment, `0` =
+  same day. Works for PUBLISHED, SYSTEM_PROBLEM and UNPUBLISHED SKUs alike.
+- `404` when no lag time is stored: `{ "status": "NOT_FOUND", "header": { "headerAttributes": {} },
+"errors": [ { "code": "404.CONTENT_NOT_FOUND", "field": "lagtime", "description": "No item
+found with the given SKU.", "severity": "INFO", … } ] }`. The description is misleading: the
+  SKU exists, it just has no stored lag time. This is the ordinary state (4 of 6 SKUs sampled
+  across the three statuses), so the SDK resolves it to `null`. Note the body shape differs
+  from the `{ "error": [...] }` form other 404s use; the error parser handles both.
+- `520 { "status": "FAIL", "errors": [ { "code": "500.SYSTEM_ERROR", … } ] }` for a SKU that is
+  not in the catalog at all, and for a call without `sku` (`Required request parameter 'sku'
+for method parameter type String is not present`). `gtin=` is not an accepted parameter.
+  These surface as `WalmartApiError`.
+- Setting a lag time is the `lagtime` feed (§6); the lag feed shows up in the feed list.
+
+### Catalog search - `GET /v3/items/walmart/search` (`client.catalog.search`)
+
+Exactly one of `gtin` (a 14-digit GTIN; zero-pad a 12-digit UPC), `upc` or `query`. Always
+`200`; no match is `{ "items": [], "relatedQueries": [] }`, **not** a `404`. A GTIN or UPC hit is
+`{ itemId, images: [{ url }], title, brand, productType, properties: { categories: [...] } }`.
+A text-query hit also carries `isMarketPlaceItem` (boolean), `customerRating`, `price`
+(`{ amount, currency }`), `standardUpc` and `properties.numReviews`; a 3-word query returned 18
+hits, all marketplace items with a price. The catalog is Walmart.ca's whole public catalog, so a
+hit is not necessarily our own item. Other parameters (paging, filters) are **ASSUMPTION** and
+not exposed.
+
+### Shipping templates - `GET /v3/settings/shipping/templates[/{id}]` (`client.shipping`)
+
+- List: `200 { "totalRecords": 1, "shippingTemplates": [ { "id", "name": "Default Template",
+"type": "DEFAULT", "rateModelType": "PER_SHIPMENT_PRICING", "status": "ACTIVE",
+"isMigrated": true } ] }`.
+- Detail: the summary fields plus `shippingMethods[] { shipMethod: "STANDARD", status,
+configurations[] }` (ten configurations on the one method seen), `createdBy`, `modifiedBy`,
+  `createdDate` / `modifiedDate` (epoch milliseconds, numbers). Each configuration is
+  `{ regions[] { regionCode, regionName, subRegions[] { subRegionCode, subRegionName, states[]
+{ stateCode, stateName, stateSubregions[] } } }, addressTypes[], transitTime (days),
+perShippingCharge { unitOfMeasure, shippingAndHandling, chargePerWeight },
+tieredShippingCharges[] }`. The SDK types only the envelope and keeps each configuration as a
+  loose object. Read-only; changing a template is not wrapped.
+- Probed paths that do **not** exist on the CA gateway (`404 CONTENT_NOT_FOUND.GMP_GATEWAY_API`):
+  `/v3/settings/shippingtemplates`, `/v3/settings/shipping/{template,nodes,promotions}`,
+  `/v3/settings/{lagtime,fulfillment,seller}`, `/v3/fulfillment/centers`.
+
+### Reports, read side - `GET /v3/reports/reportRequests[/{id}]`, `GET /v3/reports/downloadReport` (`client.reports`)
+
+- List: `200 { "page", "totalCount", "limit", "requests": [ { "requestId", "requestStatus":
+"READY", "requestSubmissionDate": "2026-01-02T03:04:05Z", "reportType": "BUYBOX" | "ITEM_CA",
+"reportVersion": "v1", "reportSummary", "src": "API", "channelType", "payload": {},
+"reportGenerationDate"? } ] }`. `reportGenerationDate` is absent on some rows. The
+  `reportType` filter is accepted (an unmatched type is `200` with an empty list). The echoed
+  `limit` was `0`/the requested value inconsistently, so do not trust it.
+- Get: `200`, the same keys without `reportGenerationDate`. An unknown or expired id (or one
+  belonging to another seller) answers `404 { "errors": [ { "code": "CONTENT_NOT_FOUND",
+"field": "requestId", "severity": "ERROR", "category": "DATA", … } ] }`.
+- Download: `200 { requestId, requestStatus, requestSubmissionDate, reportType, reportVersion,
+downloadURL, downloadURLExpirationTime }` - a pre-signed link on a `*.walmartapis.com` host
+  that stops working at `downloadURLExpirationTime` (ISO-8601 UTC). The SDK returns the link and
+  never fetches it; it is a credential, so do not log it. The same unknown-id `404` applies.
+- **Creating** a report (`POST /v3/reports/reportRequests?reportType=BUYBOX&reportVersion=v1`
+  with `{ rowFilters: [], excludeColumns: [] }`) answered `200 { requestId, requestStatus:
+"RECEIVED", requestSubmissionDate, … }` in earlier ops runs, and `reportType=BUY_BOX` was a
+  `404`. It starts a server-side job, so it is **not wrapped** and was not re-called.
+
+### Verified absent (no SDK surface to add)
+
+- **No price read endpoint.** The current price is the `price` object on the item payload
+  (`items.get` / `items.list`); every price-looking GET probed on the gateway is a `404`.
+- **No unpublished-reason field.** Across all 45 items (35 `PUBLISHED`, 4 `SYSTEM_PROBLEM`, 6
+  `UNPUBLISHED`) every item had the identical key set `gtin, lifecycleStatus, mart, price,
+productName, productType, publishedStatus, shelf, sku, upc, wpid` - no `unpublishedReasons`,
+  `unpublishReasons` or similar, whether the item is listed or fetched by SKU, and the
+  `publishedStatus` filter returns the same shape. The `/v3/ca/insights/items/*` family
+  (`unpublished`, `buybox`, `listingQuality`, `trending`, `competitor`) all answer `404`. The
+  reason text for an unpublished or system-problem item is therefore only visible in Walmart
+  Seller Center, not through this API (**as of 2026-10-10**).
+- `GET /v3/returns/policies` and `/v3/returns` answer `404` on the CA gateway.
