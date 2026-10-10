@@ -54,9 +54,10 @@ file before debugging a `400`.
 ## Reading data
 
 ```ts
-// One page at a time, with a cursor you hand straight back.
-const page = await client.items.list({ limit: 50 });
-const next = page.nextCursor ? await client.items.list({ nextCursor: page.nextCursor }) : undefined;
+// One page at a time. Items page by offset (Walmart returns no cursor unless you start one
+// with `nextCursor: "*"`); `totalItems` says when to stop.
+const page = await client.items.list({ limit: 50, offset: 0 });
+const next = await client.items.list({ limit: 50, offset: 50 });
 
 // Orders from the last 30 days.
 const since = new Date(Date.now() - 30 * 864e5).toISOString();
