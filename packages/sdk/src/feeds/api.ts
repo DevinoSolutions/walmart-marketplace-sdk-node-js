@@ -12,7 +12,7 @@ import type {
 import type { ResolvedConfig } from "../client/config.js";
 import { WalmartApiError, WalmartValidationError } from "../errors/index.js";
 import { OPERATIONS } from "../operations.js";
-import type { WalmartHttpClient } from "../client/http.js";
+import type { RequestSpec, WalmartHttpClient } from "../client/http.js";
 import { parseInput } from "../schemas/validate.js";
 import { asIsoDate, asList, asNumber, asRecord, asString, getField } from "../schemas/wire.js";
 
@@ -20,10 +20,15 @@ import { asIsoDate, asList, asNumber, asRecord, asString, getField } from "../sc
 export const FEED_PART_NAME = "file";
 
 /** Feed types a Canadian (and Mexican/Chilean) seller may submit. */
-export const GLOBAL_FEED_TYPES = ["MP_ITEM_INTL", "MP_ITEM_MATCH", "MP_MAINTENANCE"] as const;
+export const GLOBAL_FEED_TYPES = [
+  "MP_ITEM_INTL",
+  "MP_ITEM_MATCH",
+  "MP_MAINTENANCE",
+  "lagtime",
+] as const;
 
 const submitSchema = z.looseObject({
-  feedType: z.enum(["MP_ITEM_INTL", "MP_ITEM_MATCH", "MP_MAINTENANCE", "MP_ITEM"]),
+  feedType: z.enum(["MP_ITEM_INTL", "MP_ITEM_MATCH", "MP_MAINTENANCE", "MP_ITEM", "lagtime"]),
   fileName: z.string().min(1).optional(),
 });
 
@@ -33,7 +38,7 @@ const statusParamsSchema = z.looseObject({
   limit: z.number().int().min(1).max(1000).optional(),
 });
 
-function parseIngestionErrors(value: unknown): FeedIngestionError[] {
+export function parseIngestionErrors(value: unknown): FeedIngestionError[] {
   return asList(value, "ingestionError").map((entry) => ({
     type: asString(entry.type),
     code: asString(entry.code),
@@ -89,14 +94,32 @@ export class FeedsApiImpl implements FeedsApi {
       );
     }
 
-    const fileName = parsed.fileName ?? "feed.json";
-    const form = new FormData();
-    form.append(FEED_PART_NAME, toFilePart(input.file, fileName), fileName);
+    const query = { feedType: parsed.feedType };
+    let request: RequestSpec;
+    if (parsed.feedType === "lagtime") {
+      // The lag-time feed is a bare JSON body; every other type is multipart.
+      const file: unknown = input.file;
+      if (
+        typeof file !== "object" ||
+        file === null ||
+        Array.isArray(file) ||
+        file instanceof Blob ||
+        file instanceof Uint8Array
+      ) {
+        throw new WalmartValidationError(
+          'Invalid feeds.submit file for feedType "lagtime": expected a plain object ({ LagTimeHeader, lagTime }).',
+          [{ path: "file", message: "lagtime feed must be a plain JSON object" }],
+        );
+      }
+      request = { operation: OPERATIONS.feedsSubmit, query, json: file };
+    } else {
+      const fileName = parsed.fileName ?? "feed.json";
+      const form = new FormData();
+      form.append(FEED_PART_NAME, toFilePart(input.file, fileName), fileName);
+      request = { operation: OPERATIONS.feedsSubmit, query, form };
+    }
 
-    const result = await this.#http.request(
-      { operation: OPERATIONS.feedsSubmit, query: { feedType: parsed.feedType }, form },
-      options,
-    );
+    const result = await this.#http.request(request, options);
 
     const feedId = asString(getField(result.json, "feedId"));
     if (feedId === undefined) {

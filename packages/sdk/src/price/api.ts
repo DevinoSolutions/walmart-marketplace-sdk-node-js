@@ -10,7 +10,7 @@ import type {
 import type { ResolvedConfig } from "../client/config.js";
 import { OPERATIONS } from "../operations.js";
 import type { WalmartHttpClient } from "../client/http.js";
-import { parseItemDetails } from "../feeds/api.js";
+import { parseIngestionErrors, parseItemDetails } from "../feeds/api.js";
 import { parseInput } from "../schemas/validate.js";
 import { asNumber, asRecord, asString } from "../schemas/wire.js";
 
@@ -92,6 +92,7 @@ export class PriceApiImpl implements PriceApi {
     const root = asRecord(result.json);
     return {
       feedId: asString(root.feedId),
+      ingestionErrors: parseIngestionErrors(root.ingestionErrors),
       itemsReceived: asNumber(root.itemsReceived),
       itemsSucceeded: asNumber(root.itemsSucceeded),
       itemsFailed: asNumber(root.itemsFailed),

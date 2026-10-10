@@ -127,16 +127,22 @@ export interface ItemsApi {
 /**
  * Feed types. `MP_ITEM_INTL` (full item setup), `MP_ITEM_MATCH` (match by GTIN) and
  * `MP_MAINTENANCE` are valid for Canada; `MP_ITEM` is US-only and `feeds.submit` rejects it
- * on a non-US market before sending.
+ * on a non-US market before sending. `lagtime` sets the fulfillment lag time (handling days)
+ * and, unlike every other type, is sent as a plain JSON body rather than multipart.
  */
-export type WalmartFeedType = "MP_ITEM_INTL" | "MP_ITEM_MATCH" | "MP_MAINTENANCE" | "MP_ITEM";
+export type WalmartFeedType =
+  "MP_ITEM_INTL" | "MP_ITEM_MATCH" | "MP_MAINTENANCE" | "MP_ITEM" | "lagtime";
 
 /** Feed payload: a `Blob`, raw bytes, or a JSON-serializable object/array. */
 export type FeedFile = Blob | Uint8Array | Record<string, unknown> | readonly unknown[];
 
 export interface SubmitFeedInput {
   feedType: WalmartFeedType;
-  /** Sent as the multipart part named `file`. */
+  /**
+   * Sent as the multipart part named `file`. For `feedType: "lagtime"` it must be a plain
+   * object (`{ LagTimeHeader: { version: "1.0" }, lagTime: [{ sku, fulfillmentLagTime }] }`)
+   * and is sent as the JSON request body instead.
+   */
   file: FeedFile;
   /** Multipart filename. Defaults to `feed.json`. */
   fileName?: string;
@@ -189,7 +195,10 @@ export interface FeedStatus {
 }
 
 export interface FeedsApi {
-  /** WRITE. Uploads a feed as `multipart/form-data` with a single part named `file`. */
+  /**
+   * WRITE. Uploads a feed as `multipart/form-data` with a single part named `file` (the
+   * `lagtime` feed type is the exception: a plain JSON body).
+   */
   submit(input: SubmitFeedInput, options?: RequestOptions): Promise<FeedSubmitResult>;
   getStatus(
     feedId: string,
@@ -253,9 +262,15 @@ export interface PriceUpdateInput {
   header?: Partial<PriceFeedHeader>;
 }
 
-/** `POST /v3/price` answers with a feed-shaped ingestion report. */
+/**
+ * `POST /v3/price` answers with a feed-shaped ingestion report. A failure can arrive as HTTP
+ * 200 with only a top-level `ingestionErrors` block and no `feedId`; check
+ * {@link PriceUpdateResult.ingestionErrors} before assuming the price changed.
+ */
 export interface PriceUpdateResult {
   feedId?: string;
+  /** Top-level ingestion errors (e.g. `PDR-0016`); empty when the call was accepted. */
+  ingestionErrors: FeedIngestionError[];
   itemsReceived?: number;
   itemsSucceeded?: number;
   itemsFailed?: number;

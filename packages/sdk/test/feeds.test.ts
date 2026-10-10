@@ -234,3 +234,117 @@ describe("feeds.getStatus live shape (2026-10-10)", () => {
     });
   });
 });
+
+describe("feeds.submit live shapes (2026-10-10)", () => {
+  // Bodies that were accepted by the production Canadian account, with placeholder values.
+  const MATCH_FEED = {
+    MPItemFeedHeader: {
+      sellingChannel: "mpsetupbymatch",
+      mart: "WALMART_CA",
+      version: "1.06",
+      processMode: "REPLACE",
+      subset: "EXTERNAL",
+      locale: ["en", "fr"],
+    },
+    MPItem: [
+      {
+        Item: {
+          sku: "SKU-1",
+          productIdentifiers: { productIdType: "GTIN", productId: "00000000000000" },
+          price: 99.99,
+          ShippingWeight: { measure: 0.5, unit: "lb" },
+          productTaxCode: 2038710,
+          productCategory: "Computer Components",
+        },
+      },
+    ],
+  };
+
+  it("passes an MP_ITEM_MATCH v1.06 body through untouched as the multipart file part", async () => {
+    const { client, calls } = createHarness([submitRoute]);
+    await client.feeds.submit({ feedType: "MP_ITEM_MATCH", file: MATCH_FEED });
+
+    const call = apiCalls(calls)[0];
+    expect(call?.url.searchParams.get("feedType")).toBe("MP_ITEM_MATCH");
+    expect(JSON.parse(call?.formValues?.file ?? "{}")).toEqual(MATCH_FEED);
+  });
+
+  it("sends the lagtime feed as a plain JSON body, not multipart", async () => {
+    const { client, calls } = createHarness([submitRoute]);
+    const body = {
+      LagTimeHeader: { version: "1.0" },
+      lagTime: [{ sku: "SKU-1", fulfillmentLagTime: 0 }],
+    };
+    const result = await client.feeds.submit({ feedType: "lagtime", file: body });
+
+    expect(result.feedId).toBe("FEED-123");
+    const call = apiCalls(calls)[0];
+    expect(call?.method).toBe("POST");
+    expect(call?.url.pathname).toBe("/v3/feeds");
+    expect(call?.url.searchParams.get("feedType")).toBe("lagtime");
+    expect(call?.headers.get("content-type")).toBe("application/json");
+    expect(call?.formParts).toBeUndefined();
+    expect(call?.bodyJson).toEqual(body);
+  });
+
+  it("rejects a lagtime payload that is not a plain object before sending", async () => {
+    const { client, calls } = createHarness([submitRoute]);
+    await expect(
+      client.feeds.submit({ feedType: "lagtime", file: new TextEncoder().encode("{}") }),
+    ).rejects.toBeInstanceOf(WalmartValidationError);
+    await expect(client.feeds.submit({ feedType: "lagtime", file: [] })).rejects.toBeInstanceOf(
+      WalmartValidationError,
+    );
+    expect(calls).toHaveLength(0);
+  });
+
+  it("reads an MP_ITEM_INTL status that lists the SKU twice while it is still processing", async () => {
+    // An INTL feed reports one in-flight row and one resolved row per SKU, so itemsReceived
+    // is 2 for a single item and the feed stays PROCESSED with itemsProcessing 1 for a long
+    // time. The resolved row carries productIdentifiers.productIdentifier[] and an itemid.
+    const { client } = createHarness([
+      jsonRoute("GET", "/v3/feeds/FEED-123", {
+        feedId: "FEED-123",
+        feedStatus: "PROCESSED",
+        feedSubmissionDate: 1_757_000_000_000,
+        itemsReceived: 2,
+        itemsSucceeded: 1,
+        itemsFailed: 0,
+        itemsProcessing: 1,
+        offset: 0,
+        limit: 50,
+        itemDetails: {
+          itemIngestionStatus: [
+            {
+              martId: 1,
+              sku: "SKU-1",
+              index: 0,
+              itemid: "",
+              productIdentifiers: {},
+              ingestionStatus: "INPROGRESS",
+            },
+            {
+              martId: 1,
+              sku: "SKU-1",
+              index: 1,
+              itemid: "00000000000",
+              productIdentifiers: {
+                productIdentifier: [
+                  { productIdType: "GTIN", productId: "00000000000000" },
+                  { productIdType: "UPC", productId: "000000000000" },
+                ],
+              },
+              ingestionStatus: "SUCCESS",
+            },
+          ],
+        },
+      }),
+    ]);
+    const status = await client.feeds.getStatus("FEED-123");
+
+    expect(status.feedStatus).toBe("PROCESSED");
+    expect(status.itemsProcessing).toBe(1);
+    expect(status.itemDetails.map((d) => d.ingestionStatus)).toEqual(["INPROGRESS", "SUCCESS"]);
+    expect(status.itemDetails.every((d) => d.sku === "SKU-1")).toBe(true);
+  });
+});

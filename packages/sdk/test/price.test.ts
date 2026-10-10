@@ -76,3 +76,35 @@ describe("price.update", () => {
     expect(PRICE_MAX_ITEMS).toBe(10_000);
   });
 });
+
+describe("price.update live failure shape (2026-10-10)", () => {
+  // On the production Canadian account the price API answered HTTP 200 with only a top-level
+  // ingestionErrors block (PDR-0016) and no feedId, for both the feed-shaped body and the
+  // single-item `pricing` body. The call "succeeds" at the HTTP level, so the SDK surfaces the
+  // errors on the result instead of leaving them buried in `raw`.
+  const PDR_FAILURE = {
+    ingestionErrors: {
+      ingestionError: [
+        { type: "SYSTEM_ERROR", code: "PDR-0016", description: "INTERNAL SERVER ERROR" },
+      ],
+    },
+  };
+
+  it("exposes top-level ingestionErrors and leaves feedId undefined", async () => {
+    const { client } = createHarness([jsonRoute("POST", "/v3/price", PDR_FAILURE)]);
+    const result = await client.price.update({ items: [{ sku: "SKU-1", price: 10 }] });
+
+    expect(result.feedId).toBeUndefined();
+    expect(result.itemDetails).toEqual([]);
+    expect(result.ingestionErrors).toEqual([
+      { type: "SYSTEM_ERROR", code: "PDR-0016", description: "INTERNAL SERVER ERROR" },
+    ]);
+    expect(result.raw).toEqual(PDR_FAILURE);
+  });
+
+  it("reports no ingestion errors for an accepted call", async () => {
+    const { client } = createHarness([route]);
+    const result = await client.price.update({ items: [{ sku: "SKU-1", price: 10 }] });
+    expect(result.ingestionErrors).toEqual([]);
+  });
+});
