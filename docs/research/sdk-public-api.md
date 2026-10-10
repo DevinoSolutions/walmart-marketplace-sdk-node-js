@@ -50,12 +50,29 @@ interface WalmartClient {
   readonly market: WalmartMarket;
   readonly auth: AuthApi; // getAccessToken
   readonly items: ItemsApi; // list, listAll, get
-  readonly feeds: FeedsApi; // submit (WRITE), getStatus
+  readonly feeds: FeedsApi; // submit (WRITE), getStatus, list
   readonly inventory: InventoryApi; // get, update (WRITE)
   readonly price: PriceApi; // update (WRITE)
   readonly orders: OrdersApi; // list, listAll, get, acknowledge/ship/cancel (WRITE)
+  readonly lagTime: LagTimeApi; // get
+  readonly catalog: CatalogApi; // search
+  readonly shipping: ShippingApi; // listTemplates, getTemplate
+  readonly reports: ReportsApi; // list, get, getDownload (no request method on purpose)
 }
 ```
+
+The last four modules and `feeds.list` are read-only and were added for the ops scripts
+(contracts §12):
+
+- `feeds.list({ feedType?, offset?, limit? })` - the account-wide feed history; the only place
+  `feedType` appears. An empty history is an empty page.
+- `lagTime.get(sku)` - resolves to `null` when Walmart holds no lag time for the SKU (its
+  `404 CONTENT_NOT_FOUND`); setting one is a `feeds.submit` of type `lagtime`.
+- `catalog.search({ gtin } | { upc } | { query })` - exactly one key; looks a product up in the
+  public Walmart.ca catalog (other sellers' items included).
+- `shipping.listTemplates()` / `shipping.getTemplate(id)` - read-only shipping templates.
+- `reports.list` / `reports.get(id)` / `reports.getDownload(id)` - existing report requests and
+  the short-lived pre-signed download URL (never fetched by the SDK; treat it as a credential).
 
 `items.listAll` and `orders.listAll` are async iterators over every page.
 
@@ -110,7 +127,11 @@ Exported type-only from the root: `WalmartMarket`, `RequestOptions`, `WalmartCli
 `InventoryQuantity`, `InventoryRecord`, `UpdateInventoryInput`, `InventoryApi`,
 `PriceFeedHeader`, `PriceUpdateItem`, `PriceUpdateInput`, `PriceUpdateResult`, `PriceApi`,
 `OrderStatus`, `OrderLine`, `WalmartOrder`, `ListOrdersParams`, `OrdersPage`, `ShipmentLine`,
-`ShipOrderInput`, `CancelOrderInput`, `OrdersApi`, `WalmartClient`.
+`ShipOrderInput`, `CancelOrderInput`, `OrdersApi`, `ListFeedsParams`, `FeedSummary`,
+`FeedsPage`, `LagTimeRecord`, `LagTimeApi`, `CatalogSearchParams`, `CatalogItem`,
+`CatalogSearchResult`, `CatalogApi`, `ShippingTemplateSummary`, `ShippingTemplatesPage`,
+`ShippingTemplateMethod`, `ShippingTemplate`, `ShippingApi`, `ListReportsParams`,
+`ReportRequest`, `ReportsPage`, `ReportDownload`, `ReportsApi`, `WalmartClient`.
 
 Every response type carries a `raw` field holding the untouched wire object, so a field the
 SDK does not model yet is still reachable without a patch release.
