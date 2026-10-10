@@ -98,76 +98,203 @@ describe("items.list", () => {
   });
 });
 
+/** `GET /v3/items` entry as captured live 2026-10-10 (values replaced with placeholders). */
+const LIVE_ITEM = {
+  mart: "WALMART_CA",
+  sku: "SKU-1",
+  wpid: "0RCJ4CEXAMPLE",
+  upc: "012345678905",
+  gtin: "00012345678905",
+  productName: "Sample Widget",
+  shelf: '["Root","Electronics","Computer Components","RAM"]',
+  productType: "RAM Memory",
+  price: { currency: "CAD", amount: 19.99 },
+  publishedStatus: "PUBLISHED",
+  lifecycleStatus: "ACTIVE",
+};
+
+describe("items live-verified shapes (2026-10-10)", () => {
+  it("keeps shelf as the JSON-encoded string and mart in raw", async () => {
+    const { client } = createHarness([
+      jsonRoute("GET", "/v3/items", { ItemResponse: [LIVE_ITEM], totalItems: 1 }),
+    ]);
+    const page = await client.items.list();
+    expect(page.items[0]).toMatchObject({
+      upc: "012345678905",
+      shelf: '["Root","Electronics","Computer Components","RAM"]',
+      productType: "RAM Memory",
+      price: { currency: "CAD", amount: 19.99 },
+    });
+    expect(page.items[0]?.raw.mart).toBe("WALMART_CA");
+    expect(page.nextCursor).toBeUndefined();
+  });
+
+  it("sends the first-page sentinel * as the nextCursor parameter", async () => {
+    const { client, calls } = createHarness([
+      jsonRoute("GET", "/v3/items", { ItemResponse: [LIVE_ITEM], totalItems: 1, nextCursor: "C" }),
+    ]);
+    const page = await client.items.list({ nextCursor: "*", limit: 20 });
+    expect(apiCalls(calls)[0]?.url.searchParams.get("nextCursor")).toBe("*");
+    expect(page.nextCursor).toBe("C");
+  });
+
+  it("raises WalmartApiError for a SKU Walmart does not know (404 CONTENT_NOT_FOUND)", async () => {
+    const { client } = createHarness([
+      errorRoute("GET", /\/v3\/items\//, 404, {
+        error: [
+          {
+            code: "CONTENT_NOT_FOUND.GMP_ITEM_QUERY_API",
+            field: "404_NOT_FOUND",
+            description: "No Items found for the input parameters.",
+            info: "Requested content could not be found.",
+            severity: "INFO",
+            category: "APPLICATION",
+            causes: [],
+            errorIdentifiers: {},
+          },
+        ],
+      }),
+    ]);
+    await expect(client.items.get("SKU-404")).rejects.toMatchObject({
+      status: 404,
+      upstreamCode: "CONTENT_NOT_FOUND.GMP_ITEM_QUERY_API",
+    });
+  });
+});
+
 describe("items.listAll", () => {
-  function pagedRoute(): MockRoute {
+  /** Offset-paged route over `total` items, like an uncursored live call (no nextCursor). */
+  function offsetRoute(total: number): MockRoute {
     return {
       method: "GET",
       pathPattern: "/v3/items",
       reply: (req) => {
-        const cursor = req.url.searchParams.get("nextCursor");
-        if (cursor === null) {
+        const offset = Number(req.url.searchParams.get("offset") ?? "0");
+        const limit = Number(req.url.searchParams.get("limit") ?? "20");
+        if (offset >= total) {
           return {
-            status: 200,
+            status: 404,
             body: {
-              ItemResponse: [{ ...SAMPLE_ITEM, sku: "SKU-1" }],
-              totalItems: 3,
-              nextCursor: "cursor-2",
+              error: [{ code: "CONTENT_NOT_FOUND.GMP_ITEM_QUERY_API", severity: "INFO" }],
             },
           };
         }
-        if (cursor === "cursor-2") {
-          return {
-            status: 200,
-            body: { ItemResponse: [{ ...SAMPLE_ITEM, sku: "SKU-2" }], nextCursor: "cursor-3" },
-          };
-        }
-        return { status: 200, body: { ItemResponse: [{ ...SAMPLE_ITEM, sku: "SKU-3" }] } };
+        const items = Array.from({ length: Math.min(limit, total - offset) }, (_, i) => ({
+          ...LIVE_ITEM,
+          sku: `SKU-${offset + i + 1}`,
+        }));
+        return { status: 200, body: { ItemResponse: items, totalItems: total } };
       },
     };
   }
 
-  it("walks every page via nextCursor", async () => {
-    const { client, calls } = createHarness([pagedRoute()]);
+  it("walks every page by offset and stops at totalItems", async () => {
+    const { client, calls } = createHarness([offsetRoute(5)]);
     const skus: string[] = [];
-    for await (const item of client.items.listAll({ limit: 1 })) skus.push(item.sku);
+    for await (const item of client.items.listAll({ limit: 2 })) skus.push(item.sku);
+
+    expect(skus).toEqual(["SKU-1", "SKU-2", "SKU-3", "SKU-4", "SKU-5"]);
+    const offsets = apiCalls(calls).map((c) => c.url.searchParams.get("offset"));
+    expect(offsets).toEqual(["0", "2", "4"]);
+  });
+
+  it("honours a starting offset", async () => {
+    const { client } = createHarness([offsetRoute(5)]);
+    const skus: string[] = [];
+    for await (const item of client.items.listAll({ limit: 2, offset: 3 })) skus.push(item.sku);
+    expect(skus).toEqual(["SKU-4", "SKU-5"]);
+  });
+
+  it("ends cleanly when the offset runs past the end with no totalItems (404)", async () => {
+    const route: MockRoute = {
+      method: "GET",
+      pathPattern: "/v3/items",
+      reply: (req) =>
+        req.url.searchParams.get("offset") === "0"
+          ? { status: 200, body: { ItemResponse: [LIVE_ITEM] } }
+          : {
+              status: 404,
+              body: { error: [{ code: "CONTENT_NOT_FOUND.GMP_ITEM_QUERY_API" }] },
+            },
+    };
+    const { client } = createHarness([route]);
+    const skus: string[] = [];
+    for await (const item of client.items.listAll()) skus.push(item.sku);
+    expect(skus).toEqual(["SKU-1"]);
+  });
+
+  it("follows Walmart's constant, server-advanced cursor when started with one", async () => {
+    // Live behaviour: the cursor value never changes between pages; each use advances it.
+    let uses = 0;
+    const route: MockRoute = {
+      method: "GET",
+      pathPattern: "/v3/items",
+      reply: (req) => {
+        const cursor = req.url.searchParams.get("nextCursor");
+        if (cursor === "*") {
+          return {
+            status: 200,
+            body: { ItemResponse: [{ ...LIVE_ITEM, sku: "SKU-1" }], nextCursor: "C" },
+          };
+        }
+        uses += 1;
+        return uses === 1
+          ? {
+              status: 200,
+              body: { ItemResponse: [{ ...LIVE_ITEM, sku: "SKU-2" }], nextCursor: "C" },
+            }
+          : { status: 200, body: { ItemResponse: [{ ...LIVE_ITEM, sku: "SKU-3" }] } };
+      },
+    };
+    const { client, calls } = createHarness([route]);
+    const skus: string[] = [];
+    for await (const item of client.items.listAll({ nextCursor: "*", limit: 1 })) {
+      skus.push(item.sku);
+    }
 
     expect(skus).toEqual(["SKU-1", "SKU-2", "SKU-3"]);
     expect(apiCalls(calls)).toHaveLength(3);
-    expect(apiCalls(calls)[1]?.url.searchParams.get("nextCursor")).toBe("cursor-2");
   });
 
-  it("accepts a query-string cursor and merges it into the URL", async () => {
+  it("merges a query-string cursor into the URL", async () => {
     const route: MockRoute = {
       method: "GET",
       pathPattern: "/v3/items",
       reply: (req) =>
         req.url.searchParams.get("offset") === "20"
-          ? { status: 200, body: { ItemResponse: [{ ...SAMPLE_ITEM, sku: "SKU-B" }] } }
+          ? { status: 200, body: { ItemResponse: [{ ...LIVE_ITEM, sku: "SKU-B" }] } }
           : {
               status: 200,
               body: {
-                ItemResponse: [{ ...SAMPLE_ITEM, sku: "SKU-A" }],
+                ItemResponse: [{ ...LIVE_ITEM, sku: "SKU-A" }],
                 nextCursor: "?limit=20&offset=20",
               },
             },
     };
     const { client, calls } = createHarness([route]);
-    const skus: string[] = [];
-    for await (const item of client.items.listAll()) skus.push(item.sku);
+    const first = await client.items.list();
+    const second = await client.items.list({ nextCursor: first.nextCursor });
 
-    expect(skus).toEqual(["SKU-A", "SKU-B"]);
+    expect(second.items[0]?.sku).toBe("SKU-B");
     expect(apiCalls(calls)[1]?.url.searchParams.get("offset")).toBe("20");
   });
 
-  it("stops when Walmart repeats a cursor instead of looping forever", async () => {
+  it("stops when Walmart stops advancing instead of looping forever", async () => {
     const route = jsonRoute("GET", "/v3/items", {
       ItemResponse: [SAMPLE_ITEM],
+      totalItems: 99,
       nextCursor: "same",
     });
-    const { client } = createHarness([route]);
+    const { client, calls } = createHarness([route]);
     const skus: string[] = [];
     for await (const item of client.items.listAll()) skus.push(item.sku);
-    expect(skus).toEqual(["SKU-1", "SKU-1"]);
+    expect(skus).toEqual(["SKU-1"]);
+    expect(apiCalls(calls)).toHaveLength(2);
+
+    const { client: cursored } = createHarness([route]);
+    const viaCursor: string[] = [];
+    for await (const item of cursored.items.listAll({ nextCursor: "*" })) viaCursor.push(item.sku);
+    expect(viaCursor).toEqual(["SKU-1"]);
   });
 });
 

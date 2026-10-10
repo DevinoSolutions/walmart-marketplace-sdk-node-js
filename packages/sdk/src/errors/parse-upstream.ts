@@ -2,16 +2,19 @@ import { WalmartApiError, WalmartAuthError, type WalmartUpstreamError } from "./
 import { isRecord } from "../util.js";
 
 /**
- * Extracts Walmart's error entries. The documented shape is
- * `{ error: [{ code, description, info, severity, category }] }`, but the same payload also
- * turns up wrapped as `{ errors: { error: [...] } }` and occasionally as a bare single object,
- * so all three are accepted.
+ * Extracts Walmart's error entries. Every live shape is accepted: `{ error: [...] }` (items,
+ * feeds, gateway), `{ errors: { error: [...] } }` (orders), `{ errors: [...] }` (inventory),
+ * and a bare single `error` object.
  */
 function parseUpstreamErrors(json: unknown): WalmartUpstreamError[] {
   if (!isRecord(json)) return [];
+  if (Array.isArray(json.errors)) return toEntries(json.errors);
   const container = isRecord(json.errors) ? json.errors : json;
-  const raw = isRecord(container) ? container.error : undefined;
-  const list = Array.isArray(raw) ? raw : raw === undefined ? [] : [raw];
+  const raw = container.error;
+  return toEntries(Array.isArray(raw) ? raw : raw === undefined ? [] : [raw]);
+}
+
+function toEntries(list: unknown[]): WalmartUpstreamError[] {
   const out: WalmartUpstreamError[] = [];
   for (const entry of list) {
     if (!isRecord(entry)) continue;

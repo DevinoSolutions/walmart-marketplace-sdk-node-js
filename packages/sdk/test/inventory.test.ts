@@ -60,3 +60,14 @@ describe("inventory.update", () => {
     expect(calls).toHaveLength(0);
   });
 });
+
+describe("inventory.get live shape (2026-10-10)", () => {
+  it("reads the exact { sku, quantity: { unit, amount } } body Walmart sends", async () => {
+    const { client } = createHarness([
+      jsonRoute("GET", "/v3/inventory", { sku: "SKU-1", quantity: { unit: "EACH", amount: 0 } }),
+    ]);
+    const record = await client.inventory.get("SKU-1");
+    expect(record).toMatchObject({ sku: "SKU-1", quantity: { unit: "EACH", amount: 0 } });
+    expect(Object.keys(record.raw).sort()).toEqual(["quantity", "sku"]);
+  });
+});

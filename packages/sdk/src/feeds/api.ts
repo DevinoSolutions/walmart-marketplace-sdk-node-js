@@ -14,7 +14,7 @@ import { WalmartApiError, WalmartValidationError } from "../errors/index.js";
 import { OPERATIONS } from "../operations.js";
 import type { WalmartHttpClient } from "../client/http.js";
 import { parseInput } from "../schemas/validate.js";
-import { asList, asNumber, asRecord, asString, getField } from "../schemas/wire.js";
+import { asIsoDate, asList, asNumber, asRecord, asString, getField } from "../schemas/wire.js";
 
 /** The multipart part name Walmart expects. Anything else is rejected upstream. */
 export const FEED_PART_NAME = "file";
@@ -133,6 +133,7 @@ export class FeedsApiImpl implements FeedsApi {
       feedId: asString(root.feedId) ?? validId,
       feedStatus: asString(root.feedStatus),
       feedType: asString(root.feedType),
+      submittedAt: asIsoDate(root.feedSubmissionDate),
       itemsReceived: asNumber(root.itemsReceived),
       itemsSucceeded: asNumber(root.itemsSucceeded),
       itemsFailed: asNumber(root.itemsFailed),

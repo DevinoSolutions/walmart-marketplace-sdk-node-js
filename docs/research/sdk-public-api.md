@@ -57,9 +57,18 @@ interface WalmartClient {
 }
 ```
 
-`items.listAll` and `orders.listAll` are async iterators that walk `nextCursor` to the last
-page. They stop on an absent cursor, an empty page, or a cursor Walmart has already returned,
-so a misbehaving cursor cannot spin forever.
+`items.listAll` and `orders.listAll` are async iterators over every page.
+
+- `orders.listAll` follows `meta.nextCursor` (a query string) to the last page. It stops on an
+  absent cursor, an empty page, or a cursor Walmart has already returned.
+- `items.listAll` pages by `offset` and stops at `totalItems`, because Walmart returns no
+  cursor on an uncursored call and its item cursor is constant across pages (live-verified
+  2026-10-10, contracts §5). If you start it with `nextCursor` (e.g. `"*"`) it follows the
+  cursor instead. Either way it stops when a page yields no SKU it has not already yielded, so
+  a misbehaving server cannot spin it forever.
+
+`FeedStatus.submittedAt` (ISO-8601 UTC) is read from `feedSubmissionDate`; `feedType` is not
+sent by the status call and is normally `undefined`.
 
 Write methods are marked above and in the operation table. `feeds.submit` takes a `Blob`,
 `Uint8Array` or JSON-serializable object and uploads it as the multipart part named `file`.

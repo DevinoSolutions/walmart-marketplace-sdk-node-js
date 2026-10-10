@@ -24,16 +24,24 @@ describe.skipIf(!liveEnabled)("live (read-only)", () => {
     expect(second.expiresAtMs).toBe(first.expiresAtMs);
   });
 
-  it("lists items", async () => {
+  it("lists items, then reads one item and its inventory by SKU", async () => {
     const page = await liveClient().items.list({ limit: 5 });
     expect(Array.isArray(page.items)).toBe(true);
     for (const item of page.items) {
       expect(typeof item.sku).toBe("string");
       expect(item.sku.length).toBeGreaterThan(0);
     }
+    const first = page.items[0];
+    if (first === undefined) return; // an empty catalog is a valid account state
+    const item = await liveClient().items.get(first.sku);
+    expect(item.sku).toBe(first.sku);
+    const inventory = await liveClient().inventory.get(first.sku);
+    expect(inventory.sku).toBe(first.sku);
+    expect(inventory.quantity.unit).toBe("EACH");
+    expect(Number.isInteger(inventory.quantity.amount)).toBe(true);
   });
 
-  it("lists recent orders", async () => {
+  it("lists recent orders, then reads one order by id", async () => {
     const page = await liveClient().orders.list({
       createdStartDate: daysAgoIso(30),
       limit: 5,
@@ -42,6 +50,11 @@ describe.skipIf(!liveEnabled)("live (read-only)", () => {
     for (const order of page.orders) {
       expect(typeof order.purchaseOrderId).toBe("string");
     }
+    const first = page.orders[0];
+    if (first === undefined) return; // no orders in the window
+    const order = await liveClient().orders.get(first.purchaseOrderId);
+    expect(order.purchaseOrderId).toBe(first.purchaseOrderId);
+    expect(order.orderLines.length).toBeGreaterThan(0);
   });
 
   it.skipIf(liveFeedId === "")("reads the status of an existing feed", async () => {
