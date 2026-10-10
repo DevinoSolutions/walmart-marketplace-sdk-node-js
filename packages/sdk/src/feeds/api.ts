@@ -5,7 +5,9 @@ import type {
   FeedStatusParams,
   FeedSubmitResult,
   FeedsApi,
+  FeedsPage,
   ItemIngestionStatus,
+  ListFeedsParams,
   RequestOptions,
   SubmitFeedInput,
 } from "../types.js";
@@ -34,6 +36,12 @@ const submitSchema = z.looseObject({
 
 const statusParamsSchema = z.looseObject({
   includeDetails: z.boolean().optional(),
+  offset: z.number().int().min(0).optional(),
+  limit: z.number().int().min(1).max(1000).optional(),
+});
+
+const listParamsSchema = z.looseObject({
+  feedType: z.string().min(1).optional(),
   offset: z.number().int().min(0).optional(),
   limit: z.number().int().min(1).max(1000).optional(),
 });
@@ -163,6 +171,45 @@ export class FeedsApiImpl implements FeedsApi {
       itemsProcessing: asNumber(root.itemsProcessing),
       itemDetails: parseItemDetails(root),
       raw: root,
+    };
+  }
+
+  async list(params: ListFeedsParams = {}, options: RequestOptions = {}): Promise<FeedsPage> {
+    const p = parseInput(listParamsSchema, params, "feeds.list parameters");
+    const result = await this.#http.request(
+      {
+        operation: OPERATIONS.feedsList,
+        query: { feedType: p.feedType, offset: p.offset, limit: p.limit },
+      },
+      options,
+    );
+    const root = asRecord(result.json);
+    // Repeated-element quirk: `results.feed` is an array for several feeds, a bare object for
+    // one, and `results` itself is `{}` when the history is empty.
+    const feeds = asList(getField(root.results, "feed")).flatMap((entry) => {
+      const feedId = asString(entry.feedId);
+      if (feedId === undefined) return [];
+      return [
+        {
+          feedId,
+          feedType: asString(entry.feedType),
+          feedStatus: asString(entry.feedStatus),
+          submittedAt: asIsoDate(entry.feedDate),
+          modifiedAt: asIsoDate(entry.modifiedDtm),
+          itemsReceived: asNumber(entry.itemsReceived),
+          itemsSucceeded: asNumber(entry.itemsSucceeded),
+          itemsFailed: asNumber(entry.itemsFailed),
+          itemsProcessing: asNumber(entry.itemsProcessing),
+          fileName: asString(entry.fileName),
+          raw: entry,
+        },
+      ];
+    });
+    return {
+      feeds,
+      totalResults: asNumber(root.totalResults),
+      offset: asNumber(root.offset),
+      limit: asNumber(root.limit),
     };
   }
 }

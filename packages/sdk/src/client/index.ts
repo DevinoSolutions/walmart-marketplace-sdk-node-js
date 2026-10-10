@@ -1,10 +1,14 @@
 import type { WalmartClient, WalmartClientConfig } from "../types.js";
 import { TokenCache } from "../auth/index.js";
+import { CatalogApiImpl } from "../catalog/api.js";
 import { FeedsApiImpl } from "../feeds/api.js";
 import { InventoryApiImpl } from "../inventory/api.js";
 import { ItemsApiImpl } from "../items/api.js";
+import { LagTimeApiImpl } from "../lagtime/api.js";
 import { OrdersApiImpl } from "../orders/api.js";
 import { PriceApiImpl } from "../price/api.js";
+import { ReportsApiImpl } from "../reports/api.js";
+import { ShippingApiImpl } from "../shipping/api.js";
 import { resolveConfig } from "./config.js";
 import { WalmartHttpClient } from "./http.js";
 
@@ -43,5 +47,9 @@ export function createWalmartClient(config: WalmartClientConfig): WalmartClient 
     inventory: new InventoryApiImpl(http),
     price: new PriceApiImpl(http, resolved),
     orders: new OrdersApiImpl(http),
+    lagTime: new LagTimeApiImpl(http),
+    catalog: new CatalogApiImpl(http),
+    shipping: new ShippingApiImpl(http),
+    reports: new ReportsApiImpl(http),
   };
 }

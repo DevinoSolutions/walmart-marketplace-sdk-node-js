@@ -194,6 +194,42 @@ export interface FeedStatus {
   raw: Record<string, unknown>;
 }
 
+/** Parameters for `feeds.list`. */
+export interface ListFeedsParams {
+  /** Restricts the history to one feed type, e.g. `lagtime` or `MP_ITEM_MATCH`. */
+  feedType?: string;
+  offset?: number;
+  /** Page size. Walmart's own default applies when omitted. */
+  limit?: number;
+}
+
+/** One row of the account-wide feed history (`GET /v3/feeds`). */
+export interface FeedSummary {
+  feedId: string;
+  /** The only place `feedType` appears: `MP_ITEM_MATCH`, `MP_ITEM_INTL`, `lagtime`, … */
+  feedType?: string;
+  /** `RECEIVED` | `INPROGRESS` | `PROCESSED` | `ERROR`. */
+  feedStatus?: string;
+  /** ISO-8601 UTC, from `feedDate` (epoch milliseconds, as a string, on the wire). */
+  submittedAt?: string;
+  /** ISO-8601 UTC, from `modifiedDtm`. */
+  modifiedAt?: string;
+  itemsReceived?: number;
+  itemsSucceeded?: number;
+  itemsFailed?: number;
+  itemsProcessing?: number;
+  fileName?: string;
+  raw: Record<string, unknown>;
+}
+
+/** One page of the feed history. */
+export interface FeedsPage {
+  feeds: FeedSummary[];
+  totalResults?: number;
+  offset?: number;
+  limit?: number;
+}
+
 export interface FeedsApi {
   /**
    * WRITE. Uploads a feed as `multipart/form-data` with a single part named `file` (the
@@ -205,6 +241,176 @@ export interface FeedsApi {
     params?: FeedStatusParams,
     options?: RequestOptions,
   ): Promise<FeedStatus>;
+  /**
+   * `GET /v3/feeds`: the account-wide feed history, newest first. An empty history (or a
+   * `feedType` that matches nothing) is an empty page, not an error.
+   */
+  list(params?: ListFeedsParams, options?: RequestOptions): Promise<FeedsPage>;
+}
+
+// ---------------------------------------------------------------------------
+// Lag time
+// ---------------------------------------------------------------------------
+
+/** The stored fulfillment lag time of one SKU. */
+export interface LagTimeRecord {
+  sku: string;
+  /** Days between order and shipment; `0` means same day. */
+  fulfillmentLagTime: number;
+  raw: Record<string, unknown>;
+}
+
+export interface LagTimeApi {
+  /**
+   * `GET /v3/lagtime?sku=`. Resolves to `null` when Walmart holds no lag time for the SKU (it
+   * answers `404 CONTENT_NOT_FOUND`, which is the ordinary state of a SKU whose lag time was
+   * never set). A SKU that is not in the catalog at all is NOT that case: Walmart answers
+   * `520 500.SYSTEM_ERROR`, which surfaces as a `WalmartApiError`. Setting a lag time is
+   * a `feeds.submit` with feed type `lagtime`.
+   */
+  get(sku: string, options?: RequestOptions): Promise<LagTimeRecord | null>;
+}
+
+// ---------------------------------------------------------------------------
+// Catalog search
+// ---------------------------------------------------------------------------
+
+/** Exactly one of `gtin`, `upc` or `query` is required. */
+export interface CatalogSearchParams {
+  /** A GTIN-14 (zero-pad a 12-digit UPC to 14 digits). */
+  gtin?: string;
+  upc?: string;
+  /** Free-text search. */
+  query?: string;
+}
+
+/** One hit from the Walmart.ca catalog (any seller's item, not only ours). */
+export interface CatalogItem {
+  itemId: string;
+  title?: string;
+  brand?: string;
+  productType?: string;
+  /** Present on text-search hits, absent on GTIN / UPC hits. */
+  standardUpc?: string;
+  /** Present on text-search hits. `true` for a third-party (marketplace) offer. */
+  isMarketPlaceItem?: boolean;
+  price?: MoneyAmount;
+  imageUrls: string[];
+  raw: Record<string, unknown>;
+}
+
+export interface CatalogSearchResult {
+  /** Empty when nothing matches (a `200`, not a `404`). */
+  items: CatalogItem[];
+  relatedQueries: string[];
+}
+
+export interface CatalogApi {
+  /** `GET /v3/items/walmart/search`: look a product up in the public catalog. */
+  search(params: CatalogSearchParams, options?: RequestOptions): Promise<CatalogSearchResult>;
+}
+
+// ---------------------------------------------------------------------------
+// Shipping templates
+// ---------------------------------------------------------------------------
+
+/** One entry of the shipping-template list. */
+export interface ShippingTemplateSummary {
+  id: string;
+  name?: string;
+  /** Seen: `DEFAULT`. */
+  type?: string;
+  /** Seen: `PER_SHIPMENT_PRICING`. */
+  rateModelType?: string;
+  /** Seen: `ACTIVE`. */
+  status?: string;
+  isMigrated?: boolean;
+}
+
+export interface ShippingTemplatesPage {
+  totalRecords?: number;
+  templates: ShippingTemplateSummary[];
+}
+
+/** One shipping method of a template, with its per-region configurations. */
+export interface ShippingTemplateMethod {
+  /** Seen: `STANDARD`. */
+  shipMethod?: string;
+  status?: string;
+  /** Regions, transit times and charges; the tree is deep and left as the wire sends it. */
+  configurations: Record<string, unknown>[];
+}
+
+/** A full shipping template. */
+export interface ShippingTemplate extends ShippingTemplateSummary {
+  shippingMethods: ShippingTemplateMethod[];
+  createdBy?: string;
+  modifiedBy?: string;
+  /** ISO-8601 UTC, from epoch milliseconds. */
+  createdAt?: string;
+  modifiedAt?: string;
+  raw: Record<string, unknown>;
+}
+
+export interface ShippingApi {
+  /** `GET /v3/settings/shipping/templates`. */
+  listTemplates(options?: RequestOptions): Promise<ShippingTemplatesPage>;
+  /** `GET /v3/settings/shipping/templates/{templateId}`. */
+  getTemplate(templateId: string, options?: RequestOptions): Promise<ShippingTemplate>;
+}
+
+// ---------------------------------------------------------------------------
+// Reports (read side only)
+// ---------------------------------------------------------------------------
+
+/** Parameters for `reports.list`. */
+export interface ListReportsParams {
+  /** e.g. `BUYBOX`, `ITEM_CA`. */
+  reportType?: string;
+  limit?: number;
+  page?: number;
+}
+
+/** One report request, as listed or fetched by id. */
+export interface ReportRequest {
+  requestId: string;
+  /** Seen: `READY`. Others are Walmart's (`RECEIVED`, `INPROGRESS`, `ERROR`: **ASSUMPTION**). */
+  requestStatus?: string;
+  reportType?: string;
+  reportVersion?: string;
+  /** ISO-8601 UTC, when Walmart sends a parseable date. */
+  submittedAt?: string;
+  raw: Record<string, unknown>;
+}
+
+export interface ReportsPage {
+  page?: number;
+  totalCount?: number;
+  limit?: number;
+  requests: ReportRequest[];
+}
+
+/** Where a READY report can be downloaded from. */
+export interface ReportDownload {
+  requestId: string;
+  requestStatus?: string;
+  /**
+   * A short-lived, pre-signed URL. Treat it as a credential: do not log it. This SDK never
+   * fetches it for you; a plain `fetch(downloadUrl)` returns the file.
+   */
+  downloadUrl: string;
+  /** ISO-8601 UTC, when the URL stops working. */
+  expiresAt?: string;
+  raw: Record<string, unknown>;
+}
+
+export interface ReportsApi {
+  /** `GET /v3/reports/reportRequests`: the report requests the seller has made. */
+  list(params?: ListReportsParams, options?: RequestOptions): Promise<ReportsPage>;
+  /** `GET /v3/reports/reportRequests/{requestId}`. An unknown or expired id answers `404`. */
+  get(requestId: string, options?: RequestOptions): Promise<ReportRequest>;
+  /** `GET /v3/reports/downloadReport?requestId=`: the pre-signed download link. */
+  getDownload(requestId: string, options?: RequestOptions): Promise<ReportDownload>;
 }
 
 // ---------------------------------------------------------------------------
@@ -394,4 +600,8 @@ export interface WalmartClient {
   readonly inventory: InventoryApi;
   readonly price: PriceApi;
   readonly orders: OrdersApi;
+  readonly lagTime: LagTimeApi;
+  readonly catalog: CatalogApi;
+  readonly shipping: ShippingApi;
+  readonly reports: ReportsApi;
 }

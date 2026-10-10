@@ -57,6 +57,43 @@ describe.skipIf(!liveEnabled)("live (read-only)", () => {
     expect(order.orderLines.length).toBeGreaterThan(0);
   });
 
+  it("reads the feed history, one item's lag time and its catalog entry", async () => {
+    const feeds = await liveClient().feeds.list({ limit: 2 });
+    expect(Array.isArray(feeds.feeds)).toBe(true);
+    for (const feed of feeds.feeds) expect(typeof feed.feedId).toBe("string");
+
+    const first = (await liveClient().items.list({ limit: 1 })).items[0];
+    if (first === undefined) return; // an empty catalog is a valid account state
+    const lag = await liveClient().lagTime.get(first.sku);
+    if (lag !== null) expect(Number.isInteger(lag.fulfillmentLagTime)).toBe(true);
+
+    if (first.gtin === undefined) return;
+    const found = await liveClient().catalog.search({ gtin: first.gtin });
+    expect(Array.isArray(found.items)).toBe(true);
+    for (const hit of found.items) expect(typeof hit.itemId).toBe("string");
+  });
+
+  it("reads the shipping templates", async () => {
+    const page = await liveClient().shipping.listTemplates();
+    expect(Array.isArray(page.templates)).toBe(true);
+    const first = page.templates[0];
+    if (first === undefined) return;
+    const template = await liveClient().shipping.getTemplate(first.id);
+    expect(template.id).toBe(first.id);
+    expect(Array.isArray(template.shippingMethods)).toBe(true);
+  });
+
+  it("reads the report requests and one download link (never fetched or printed)", async () => {
+    const page = await liveClient().reports.list({ limit: 5 });
+    expect(Array.isArray(page.requests)).toBe(true);
+    const ready = page.requests.find((request) => request.requestStatus === "READY");
+    if (ready === undefined) return;
+    const request = await liveClient().reports.get(ready.requestId);
+    expect(request.requestId).toBe(ready.requestId);
+    const download = await liveClient().reports.getDownload(ready.requestId);
+    expect(download.downloadUrl.startsWith("https://")).toBe(true);
+  });
+
   it.skipIf(liveFeedId === "")("reads the status of an existing feed", async () => {
     const status = await liveClient().feeds.getStatus(liveFeedId, { includeDetails: false });
     expect(status.feedId).toBe(liveFeedId);
