@@ -95,9 +95,11 @@ the JSON request body.
 
 `inventory.update` resolves with the echoed requested amount, but the stored quantity changes
 asynchronously (minutes), and the call answers `404` until a newly fed SKU exists in the
-catalogue. `price.update` can resolve with an empty `feedId` and a non-empty
-`PriceUpdateResult.ingestionErrors` (HTTP 200 with a `PDR-0016` block); check it before
-assuming the price changed. See contracts §6 to §8.
+catalogue. `price.update` sends one `POST /v3/price` per item (the endpoint refuses more than one), up to
+`PRICE_MAX_ITEMS` (100), and answers synchronously with no `feedId`: read `feedStatus`,
+`itemsSucceeded`/`itemsFailed` and `itemDetails`. A rejection can still arrive as HTTP 200 with a
+non-empty `PriceUpdateResult.ingestionErrors` (e.g. `PDR-0016`); check it before assuming the
+price changed. See contracts §6 to §8.
 
 ## Errors
 
@@ -162,7 +164,7 @@ consumer building a permission gate should read it rather than re-deriving the l
 | `FEED_PART_NAME`              | `"file"`                                              |
 | `GLOBAL_FEED_TYPES`           | `["MP_ITEM_INTL", "MP_ITEM_MATCH", "MP_MAINTENANCE"]` |
 | `INVENTORY_UNIT`              | `"EACH"`                                              |
-| `PRICE_MAX_ITEMS`             | `10000`                                               |
+| `PRICE_MAX_ITEMS`             | `100`                                                 |
 | `DEFAULT_CANCELLATION_REASON` | `"CANCEL_BY_SELLER"`                                  |
 | `REDACTED`                    | `"[redacted]"`                                        |
 

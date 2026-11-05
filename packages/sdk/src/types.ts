@@ -450,7 +450,8 @@ export interface InventoryApi {
 /** Header block of the CA/MX/CL price payload. Defaults come from the client's market. */
 export interface PriceFeedHeader {
   mart: string;
-  locale: string;
+  /** A language tag or a list of them; the Canadian spec lists `["en", "fr"]`. */
+  locale: string | string[];
   version: string;
   businessUnit?: string;
   tenant?: string;
@@ -463,18 +464,25 @@ export interface PriceUpdateItem {
 }
 
 export interface PriceUpdateInput {
+  /** Up to `PRICE_MAX_ITEMS`; sent as one request per item, in order. */
   items: PriceUpdateItem[];
   /** Overrides for the generated {@link PriceFeedHeader}. */
   header?: Partial<PriceFeedHeader>;
 }
 
 /**
- * `POST /v3/price` answers with a feed-shaped ingestion report. A failure can arrive as HTTP
- * 200 with only a top-level `ingestionErrors` block and no `feedId`; check
- * {@link PriceUpdateResult.ingestionErrors} before assuming the price changed.
+ * `POST /v3/price` answers synchronously with an ingestion report (`feedStatus`, counts,
+ * `itemDetails`); there is no `feedId` to poll. A rejection can still arrive as HTTP 200 with
+ * only a top-level `ingestionErrors` block (e.g. `PDR-0016`), so check
+ * {@link PriceUpdateResult.ingestionErrors} and {@link PriceUpdateResult.itemsFailed} before
+ * assuming the price changed. With several items the counts and `itemDetails` are summed
+ * across the per-item requests and `raw` is `{ responses }`.
  */
 export interface PriceUpdateResult {
+  /** Only ever set by a feed-shaped answer; the single-item endpoint returns none. */
   feedId?: string;
+  /** `PROCESSED` for an item the endpoint handled; the last request's value when batched. */
+  feedStatus?: string;
   /** Top-level ingestion errors (e.g. `PDR-0016`); empty when the call was accepted. */
   ingestionErrors: FeedIngestionError[];
   itemsReceived?: number;
@@ -485,7 +493,7 @@ export interface PriceUpdateResult {
 }
 
 export interface PriceApi {
-  /** WRITE. Submits new prices for up to 10,000 SKUs. */
+  /** WRITE. Sets the price of up to `PRICE_MAX_ITEMS` SKUs, one request per SKU. */
   update(input: PriceUpdateInput, options?: RequestOptions): Promise<PriceUpdateResult>;
 }
 

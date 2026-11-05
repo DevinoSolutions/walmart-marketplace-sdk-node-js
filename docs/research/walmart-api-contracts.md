@@ -485,22 +485,58 @@ Errors (both use the `errors` **array** envelope, see §10):
 
 ## 8. Price — `POST /v3/price`
 
-CA/MX/CL use a feed-shaped payload rather than the US single-item body:
+**VERIFIED 2026-11-05 (live, Canadian account).** The Canadian sync price body is the
+`CA-sync price.json` sample from Walmart's pricing spec 5.0.20250801-18_47_55
+(`https://developer.walmart.com/file/mp/global/CA-pricing-spec.zip`, fetched 2026-11-05;
+reference pages `/global-marketplace/docs/update-pricing-for-a-single-item` and
+`/global-marketplace/reference/updateprice`). Each item is wrapped in `Price`, and the header
+carries `businessUnit` and `tenant`:
 
 ```json
 {
-  "MPItemFeedHeader": { "mart": "WALMART_CA", "locale": "en", "version": "1.0" },
-  "MPItem": [{ "sku": "SKU-1", "price": 24.99, "msrp": 29.99 }]
+  "MPItemFeedHeader": {
+    "mart": "WALMART_CA",
+    "locale": ["en", "fr"],
+    "version": "5.0.20250801-18_47_55-api",
+    "businessUnit": "WALMART_CA",
+    "tenant": "WALMART_CA"
+  },
+  "MPItem": [{ "Price": { "sku": "SKU-1", "price": 24.99, "msrp": 29.99 } }]
 }
 ```
 
-The response is feed-shaped: `feedId`, `itemsReceived`/`Succeeded`/`Failed`, and
-`itemDetails.itemIngestionStatus[]` as in §6.
+Headers are the standard set from §3 (`WM_GLOBAL_VERSION: 3.1`, `WM_MARKET: ca`). The answer is
+**synchronous and has no `feedId`**:
 
-**Live outcome, 2026-09-26 to 2026-10-07 — not working on this account.** `price.update`
-(the body above) and the single-item `{ "sku", "pricing": [{ "currentPrice": { "currency":
-"CAD", "amount": 24.99 }, "currentPriceType": "BASE" }] }` body both answered **HTTP `200`
-with no `feedId`**, only
+```json
+{
+  "feedStatus": "PROCESSED",
+  "feedSubmissionDate": 1793894219643,
+  "itemsReceived": 1,
+  "itemsSucceeded": 1,
+  "itemsFailed": 0,
+  "itemsProcessing": 0,
+  "itemDetails": {
+    "itemIngestionStatus": [{ "martId": 1, "sku": "SKU-1", "ingestionStatus": "SUCCESS" }]
+  }
+}
+```
+
+Two live prices were changed this way on 2026-11-05. `GET /v3/items` still showed the old CAD
+amount 45 seconds after the first call and the new one a few minutes later, so the read-back
+lags. After one price raise Walmart set the item to `UNPUBLISHED` (its price-reasonableness
+check, not a request error); read `publishedStatus` after re-pricing.
+
+**One item per request — VERIFIED.** Two items in one body answered HTTP `520`, "Item(s) Not
+Supported more than 1". The SDK's `price.update` therefore sends one request per item,
+sequentially and without retries (ADR 0001), and sums the counts into one result;
+`PRICE_MAX_ITEMS` is `100` to bound that fan-out. A rejected item in a batch is reported as a
+failed `itemDetails` entry and the remaining items are still attempted.
+
+**What did not work (2026-09-26 to 2026-11-05).** The earlier SDK body — header `version: "1.0"`,
+`locale: "en"`, flat `MPItem: [{ "sku", "price" }]` — and the single-item
+`{ "sku", "pricing": [{ "currentPrice": …, "currentPriceType": "BASE" }] }` body both answered
+**HTTP `200` with no `feedId`**, only a top-level
 
 ```json
 {
@@ -512,20 +548,20 @@ with no `feedId`**, only
 }
 ```
 
-The raw response above was captured on 2026-10-07 for the `pricing` body; the feed-shaped
-body (this SDK's `price.update`) hit the same `PDR-0016` block on 2026-09-26 and 2026-10-05
-(all six SKUs of one batch), and retry loops over several minutes did not clear it. No price
-change was applied through this endpoint. A successful `/v3/price` response was therefore **never observed**, so
-the request body and the success response shape stay **ASSUMPTION**. The SDK parses the
-top-level block into `PriceUpdateResult.ingestionErrors` (empty when accepted) because the
-failure is an HTTP-level success. The working ways to re-price on Canada are resending the
-`MP_ITEM_MATCH` feed with the new `price` (§6) or editing the price cell in Seller Center.
+No price changed. Swapping only the header for the 5.0 values (still the flat item) gave the same
+`PDR-0016`, so the `Price` item wrapper is what fixes it. A body the account rejects can still
+arrive as this HTTP-level success, so the SDK parses the top-level block into
+`PriceUpdateResult.ingestionErrors` (empty when accepted); a single-item call returns the parsed
+response as is, and in a batch a response carrying it counts as a failed item.
 
-**ASSUMPTION — header values.** `mart` (`WALMART_CA` / `WALMART_US` / `WALMART_MX` /
-`WALMART_CL`), `locale` (`en`) and `version` (`1.0`) are the SDK's defaults, inferred from the
-documented field names rather than an enumerated list for Canada. `businessUnit` and `tenant`
-are optional and omitted unless supplied. Every field is overridable through
-`input.header`, so a wrong default is a one-line fix at the call site, not a code change.
+**Not exercised live (ASSUMPTION).** The bulk route `POST /v3/feeds?feedType=PRICE_AND_PROMOTION`
+(plain JSON body, `MPItemFeedHeader` with `subCategory: "price-mp"`, `feedType`,
+`processMode: "REPLACE"`, `subset: "EXTERNAL"`, item shape `MPItem: [{ "Price": … }]`, answer
+`{ feedId }`) is documented at `/global-marketplace/docs/update-pricing-for-multiple-items-bulk`
+but was not called, and is not wrapped by the SDK. The older multipart `feedType=price` is
+likewise unverified. `mart` values for `us`/`mx`/`cl` and the `msrp` field are ASSUMPTION; only
+`WALMART_CA` with `price` was sent. The `MP_ITEM_MATCH` feed (§6) and the Seller Center price cell
+remain alternative ways to re-price.
 
 ## 9. Orders
 
