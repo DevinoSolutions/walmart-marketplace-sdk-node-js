@@ -47,9 +47,9 @@ constructing a client per request throws that cache away and doubles your reques
 | `orders`    | `list`, `listAll`, `get`, `acknowledge` / `ship` / `cancel` (writes) |
 
 The full surface, including every exported type and constant, is documented in
-[`docs/research/sdk-public-api.md`](docs/research/sdk-public-api.md). The wire shapes, and
+[`docs/research/sdk-public-api.md`](https://github.com/DevinoSolutions/walmart-marketplace-sdk-node-js/blob/main/docs/research/sdk-public-api.md). The wire shapes, and
 which of them are still **ASSUMPTION**s for Canada, are in
-[`docs/research/walmart-api-contracts.md`](docs/research/walmart-api-contracts.md). Read that
+[`docs/research/walmart-api-contracts.md`](https://github.com/DevinoSolutions/walmart-marketplace-sdk-node-js/blob/main/docs/research/walmart-api-contracts.md). Read that
 file before debugging a `400`.
 
 ## Reading data
@@ -117,7 +117,7 @@ try {
 
 The SDK issues exactly one request per call and never retries. That is deliberate: several
 Walmart operations are not idempotent, so an automatic retry on an ambiguous `5xx` can produce
-two shipments for one order line. See [ADR 0001](docs/adr/0001-thin-fetch-client.md).
+two shipments for one order line. See [ADR 0001](https://github.com/DevinoSolutions/walmart-marketplace-sdk-node-js/blob/main/docs/adr/0001-thin-fetch-client.md).
 
 Every error carries the request's `WM_QOS.CORRELATION_ID`, which is what Walmart support asks
 for. Credentials never appear in an error: the client secret, the derived Basic credential and
