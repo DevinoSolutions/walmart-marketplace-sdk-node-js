@@ -1,5 +1,5 @@
 {
-  "name": "@devino/walmart-marketplace-sdk",
+  "name": "@joinmarka/walmart",
   "version": "0.1.0",
   "description": "Transport-independent TypeScript SDK for the Walmart Marketplace Global API (Canada, Mexico, Chile, US).",
   "license": "MIT",
@@ -14,7 +14,8 @@
     "sdk",
     "ecommerce",
     "seller",
-    "inventory"
+    "inventory",
+    "marka"
   ],
   "sideEffects": false,
   "main": "./dist/index.js",
@@ -32,17 +33,29 @@
   },
   "files": [
     "dist",
-    "README.md"
+    "README.md",
+    "LICENSE"
   ],
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "test": "vitest run"
+    "test": "vitest run",
+    "prepack": "node -e \"const f=require('fs');for(const n of ['README.md','LICENSE'])f.copyFileSync('../../'+n,n)\""
   },
   "dependencies": {
     "zod": "^4.4.3"
   },
   "publishConfig": {
-    "access": "public"
+    "access": "public",
+    "provenance": true
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/DevinoSolutions/walmart-marketplace-sdk-node-js.git",
+    "directory": "packages/sdk"
+  },
+  "homepage": "https://github.com/DevinoSolutions/walmart-marketplace-sdk-node-js#readme",
+  "bugs": {
+    "url": "https://github.com/DevinoSolutions/walmart-marketplace-sdk-node-js/issues"
   }
 }

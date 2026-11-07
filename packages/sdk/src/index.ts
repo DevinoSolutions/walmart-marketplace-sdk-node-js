@@ -1,10 +1,10 @@
 /**
- * `@devino/walmart-marketplace-sdk` — transport-independent TypeScript SDK for the Walmart
+ * `@joinmarka/walmart` — transport-independent TypeScript SDK for the Walmart
  * Marketplace **Global API**, as used by Walmart Canada sellers.
  *
  * The public surface is described by `docs/research/sdk-public-api.md`, and the wire contracts
  * (with every **ASSUMPTION** called out) by `docs/research/walmart-api-contracts.md`. Testing
- * helpers are exported separately from `@devino/walmart-marketplace-sdk/testing`.
+ * helpers are exported separately from `@joinmarka/walmart/testing`.
  */
 
 // Public types (interfaces, unions) — all type-only.

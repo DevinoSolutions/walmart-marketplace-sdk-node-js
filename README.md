@@ -3,19 +3,20 @@
 A transport-independent TypeScript SDK for the Walmart Marketplace **Global API**, written for
 **Walmart Canada** sellers (`WM_MARKET: ca`) and usable for Mexico, Chile and the US.
 
-- **Package:** `@devino/walmart-marketplace-sdk`
+- **Package:** `@joinmarka/walmart`
+- **Part of [Marka](https://joinmarka.com).** This is an unofficial community SDK and is not affiliated with, endorsed by, or sponsored by Walmart.
 - **Node:** >= 22.12 (uses the platform `fetch`, `FormData`, `crypto.randomUUID`)
 - **Zero runtime dependencies** other than `zod`
 - Strict TypeScript, no `any`, ESM only
 
 ```bash
-npm install @devino/walmart-marketplace-sdk
+npm install @joinmarka/walmart
 ```
 
 ## Quick start
 
 ```ts
-import { createWalmartClient } from "@devino/walmart-marketplace-sdk";
+import { createWalmartClient } from "@joinmarka/walmart";
 
 const client = createWalmartClient({
   clientId: process.env.WALMART_CLIENT_ID!,
@@ -99,7 +100,7 @@ _successful_ — a feed with `itemsFailed > 0` still reports `PROCESSED`. Always
 ## Errors and retries
 
 ```ts
-import { WalmartApiError, WalmartNetworkError } from "@devino/walmart-marketplace-sdk";
+import { WalmartApiError, WalmartNetworkError } from "@joinmarka/walmart";
 
 try {
   await client.orders.ship(poId, { lines });
@@ -126,7 +127,7 @@ reach an error object or a log.
 ## Testing against the SDK
 
 ```ts
-import { createMockFetch } from "@devino/walmart-marketplace-sdk/testing";
+import { createMockFetch } from "@joinmarka/walmart/testing";
 
 const { fetch, calls } = createMockFetch([
   {

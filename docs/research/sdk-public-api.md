@@ -1,4 +1,4 @@
-# `@devino/walmart-marketplace-sdk` — public API
+# `@joinmarka/walmart` — public API
 
 This document is the **binding** description of the package's public surface. Anything not
 listed here is internal and may change without a major version. A future MCP server package
@@ -13,10 +13,10 @@ from them is reported as dead.
 
 ## Entry points
 
-| Specifier                                 | Contents                                                      |
-| ----------------------------------------- | ------------------------------------------------------------- |
-| `@devino/walmart-marketplace-sdk`         | the client factory, types, errors, operation table, constants |
-| `@devino/walmart-marketplace-sdk/testing` | `createMockFetch` and its types                               |
+| Specifier                    | Contents                                                      |
+| ---------------------------- | ------------------------------------------------------------- |
+| `@joinmarka/walmart`         | the client factory, types, errors, operation table, constants |
+| `@joinmarka/walmart/testing` | `createMockFetch` and its types                               |
 
 ## Factory
 

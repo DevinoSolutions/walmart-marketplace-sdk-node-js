@@ -20,7 +20,7 @@ interface PackageSpec {
 const packages: PackageSpec[] = [
   {
     dir: "packages/sdk",
-    name: "@devino/walmart-marketplace-sdk",
+    name: "@joinmarka/walmart",
     entries: {
       ".": [
         "createWalmartClient",

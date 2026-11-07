@@ -1,5 +1,5 @@
 /**
- * Public types for `@devino/walmart-marketplace-sdk`. Everything here is re-exported from the
+ * Public types for `@joinmarka/walmart`. Everything here is re-exported from the
  * package root; `docs/research/sdk-public-api.md` is the binding description of this surface.
  */
 
