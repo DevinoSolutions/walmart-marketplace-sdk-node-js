@@ -27,3 +27,7 @@ Thumbs.db
 .idea/
 .vscode/*
 !.vscode/extensions.json
+
+# Copied into the package by its prepack script
+packages/sdk/README.md
+packages/sdk/LICENSE

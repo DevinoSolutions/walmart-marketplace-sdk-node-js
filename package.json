@@ -12,7 +12,7 @@
     "packages/*"
   ],
   "scripts": {
-    "build": "npm run build -w @devino/walmart-marketplace-sdk",
+    "build": "npm run build -w @joinmarka/walmart",
     "typecheck": "tsc -p tsconfig.scripts.json && npm run typecheck --workspaces --if-present",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
@@ -26,7 +26,7 @@
     "check:secrets": "tsx scripts/check-secrets.ts",
     "check:live-readonly": "tsx scripts/check-live-readonly.ts",
     "check:deadcode": "knip",
-    "pack:dry": "npm pack --dry-run -w @devino/walmart-marketplace-sdk"
+    "pack:dry": "npm pack --dry-run -w @joinmarka/walmart"
   },
   "devDependencies": {
     "@types/node": "^22.15.0",

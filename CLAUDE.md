@@ -1,6 +1,6 @@
 # CLAUDE.md — agent instructions for this repo
 
-TypeScript monorepo: `packages/sdk` (`@devino/walmart-marketplace-sdk`), npm workspaces,
+TypeScript monorepo: `packages/sdk` (`@joinmarka/walmart`), npm workspaces,
 ESM/NodeNext, Node >= 22.12. An MCP server package will be added under `packages/` later.
 
 Target API: the Walmart Marketplace **Global API** as used by Walmart **Canada** sellers

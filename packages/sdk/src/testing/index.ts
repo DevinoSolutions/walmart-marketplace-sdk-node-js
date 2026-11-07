@@ -4,7 +4,7 @@
  * Routes are matched by method plus path pattern, every call is recorded (headers, parsed JSON
  * body, and the multipart part names for feed uploads), and unmatched requests come back as
  * `501` so a misconfigured test fails loudly instead of hanging. Exported from
- * `@devino/walmart-marketplace-sdk/testing`.
+ * `@joinmarka/walmart/testing`.
  */
 
 /** A single recorded request as observed by the mock. */
