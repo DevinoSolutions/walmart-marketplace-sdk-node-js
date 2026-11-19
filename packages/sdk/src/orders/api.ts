@@ -9,6 +9,7 @@ import type {
   ShipOrderInput,
   WalmartOrder,
 } from "../types.js";
+import type { ResolvedConfig } from "../client/config.js";
 import { WalmartApiError } from "../errors/index.js";
 import { OPERATIONS } from "../operations.js";
 import { applyCursor, type RequestSpec, type WalmartHttpClient } from "../client/http.js";
@@ -51,6 +52,10 @@ const shipSchema = z.looseObject({
         methodCode: z.string().min(1).optional(),
         trackingNumber: z.string().min(1),
         trackingUrl: z.string().min(1).optional(),
+        shipFromCountry: z
+          .string()
+          .regex(/^[A-Z]{2}$/, "shipFromCountry must be an upper-case ISO 3166-1 alpha-2 code")
+          .optional(),
       }),
     )
     .min(1),
@@ -131,9 +136,11 @@ function parseSingleOrder(
 
 export class OrdersApiImpl implements OrdersApi {
   readonly #http: WalmartHttpClient;
+  readonly #config: ResolvedConfig;
 
-  constructor(http: WalmartHttpClient) {
+  constructor(http: WalmartHttpClient, config: ResolvedConfig) {
     this.#http = http;
+    this.#config = config;
   }
 
   async list(params: ListOrdersParams = {}, options: RequestOptions = {}): Promise<OrdersPage> {
@@ -203,11 +210,13 @@ export class OrdersApiImpl implements OrdersApi {
     const id = parseInput(z.string().min(1), purchaseOrderId, "orders.ship purchaseOrderId");
     const p = parseInput(shipSchema, input, "orders.ship input");
     const shipDefault = new Date().toISOString();
+    const countryDefault = this.#config.market.toUpperCase();
     const body = {
       orderShipment: {
         orderLines: {
           orderLine: p.lines.map((line) => ({
             lineNumber: line.lineNumber,
+            shipFromCountry: line.shipFromCountry ?? countryDefault,
             orderLineStatuses: {
               orderLineStatus: [
                 {

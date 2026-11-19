@@ -651,6 +651,7 @@ UTC. Quantities arrive quoted (`"2"`), so read them with the coercing helpers.
       "orderLine": [
         {
           "lineNumber": "1",
+          "shipFromCountry": "CA",
           "orderLineStatuses": {
             "orderLineStatus": [
               {
@@ -676,9 +677,12 @@ UTC. Quantities arrive quoted (`"2"`), so read them with the coercing helpers.
 A carrier outside Walmart's list goes in `carrierName.otherCarrier` instead of
 `carrierName.carrier`.
 
-**ASSUMPTION — the whole shipping body on Canada.** The structure above is documented for the
-US surface; the Global reference names the endpoint but does not spell out the CA body. Treat a
-`400` here as a contract problem, not a data problem, and fix this section first.
+**Verified live on Canada (2026-11-19).** The body above, with `carrier: "CPC"` (Canada Post)
+and `methodCode: "Standard"`, shipped a real order and the line read back as `Shipped` with the
+tracking number. `orderLine.shipFromCountry` is **required** on Canada: without it Walmart
+answers `400.INVALID_UPDATE_PAYLOAD` "LineId : 1, Error : Invalid Ship From Country". The SDK
+sends the client's market country (`ca` -> `"CA"`) unless the line sets `shipFromCountry`.
+Order reads already carry the same field on each line (`orderLine.shipFromCountry`).
 
 ### Write — cancel
 

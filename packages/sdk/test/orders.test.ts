@@ -146,6 +146,7 @@ describe("order writes", () => {
           orderLine: [
             {
               lineNumber: "1",
+              shipFromCountry: "CA",
               orderLineStatuses: {
                 orderLineStatus: [
                   {
@@ -176,6 +177,29 @@ describe("order writes", () => {
     });
     const body = JSON.stringify(apiCalls(calls)[0]?.bodyJson);
     expect(body).toContain('"otherCarrier":"Loomis"');
+  });
+
+  it("sends an explicit shipFromCountry over the market default", async () => {
+    const { client, calls } = createHarness([
+      jsonRoute("POST", "/shipping", { order: SAMPLE_ORDER }),
+    ]);
+    await client.orders.ship("PO-1", {
+      lines: [{ lineNumber: "1", carrier: "CPC", trackingNumber: "T1", shipFromCountry: "US" }],
+    });
+    const body = apiCalls(calls)[0]?.bodyJson as {
+      orderShipment: { orderLines: { orderLine: Array<{ shipFromCountry?: string }> } };
+    };
+    expect(body.orderShipment.orderLines.orderLine[0]?.shipFromCountry).toBe("US");
+  });
+
+  it("rejects a lower-case shipFromCountry before sending", async () => {
+    const { client, calls } = createHarness([]);
+    await expect(
+      client.orders.ship("PO-1", {
+        lines: [{ lineNumber: "1", carrier: "CPC", trackingNumber: "T1", shipFromCountry: "ca" }],
+      }),
+    ).rejects.toBeInstanceOf(WalmartValidationError);
+    expect(calls).toHaveLength(0);
   });
 
   it("rejects a shipment without a tracking number before sending", async () => {
