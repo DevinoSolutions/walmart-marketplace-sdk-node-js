@@ -684,6 +684,15 @@ answers `400.INVALID_UPDATE_PAYLOAD` "LineId : 1, Error : Invalid Ship From Coun
 sends the client's market country (`ca` -> `"CA"`) unless the line sets `shipFromCountry`.
 Order reads already carry the same field on each line (`orderLine.shipFromCountry`).
 
+**Correcting tracking after ship: NOT available over the API on Canada.** The US API documents
+`orderShipment.processMode: "PARTIAL_UPDATE"` (sibling of `orderLines`) to update tracking on a line
+that is already `Shipped`, within 24 hours or before the carrier's first scan (Walmart US "Ship an
+order" guide and `shippingUpdates` schema, developer.walmart.com/us-marketplace/docs/ship-an-order,
+read 2026-11-19). Verified live on Canada 2026-11-19, within both limits: with or without
+`processMode`, a second ship update on a shipped line fails with `400.INVALID_UPDATE_PAYLOAD`
+"Invalid update quantity, requested : 1, available to ship : 0". The SDK therefore does not expose
+`processMode`. On Canada, correct tracking in Seller Center (if offered) or through Partner Support.
+
 ### Write — cancel
 
 `POST /v3/orders/{purchaseOrderId}/cancel`:
