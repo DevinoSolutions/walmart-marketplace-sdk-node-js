@@ -46,7 +46,7 @@ export function createWalmartClient(config: WalmartClientConfig): WalmartClient 
     feeds: new FeedsApiImpl(http, resolved),
     inventory: new InventoryApiImpl(http),
     price: new PriceApiImpl(http, resolved),
-    orders: new OrdersApiImpl(http),
+    orders: new OrdersApiImpl(http, resolved),
     lagTime: new LagTimeApiImpl(http),
     catalog: new CatalogApiImpl(http),
     shipping: new ShippingApiImpl(http),

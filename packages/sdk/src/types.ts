@@ -561,6 +561,12 @@ export interface ShipmentLine {
   methodCode?: string;
   trackingNumber: string;
   trackingUrl?: string;
+  /**
+   * ISO 3166-1 alpha-2 country the package ships from. Walmart Canada rejects a shipment
+   * without it (`400.INVALID_UPDATE_PAYLOAD` "Invalid Ship From Country"). Defaults to the
+   * client's market country (`ca` -> `"CA"`).
+   */
+  shipFromCountry?: string;
 }
 
 export interface ShipOrderInput {
